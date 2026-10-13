@@ -1,16 +1,13 @@
-## Hi there 👋
+# Hi, I'm Youssef 👋
 
-<!--
-**youssef-99/youssef-99** is a ✨ _special_ ✨ repository because its `README.md` (this file) appears on your GitHub profile.
+Software Engineer based in Giza, Egypt with ~5 years of experience building backend systems and full-stack web apps.
 
-Here are some ideas to get you started:
+- 🐍 Backend: Python, Django, Django REST Framework, Celery, Redis, PostgreSQL
+- ⚛️ Frontend: React, JavaScript
+- 🐘 Also: PHP / Laravel
+- 🐳 Tooling: Docker, WebSockets, CI/CD (Jenkins), Git (GitHub/Bitbucket), Jira
 
-- 🔭 I’m currently working on ...
-- 🌱 I’m currently learning ...
-- 👯 I’m looking to collaborate on ...
-- 🤔 I’m looking for help with ...
-- 💬 Ask me about ...
-- 📫 How to reach me: ...
-- 😄 Pronouns: ...
-- ⚡ Fun fact: ...
--->
+💼 Currently: Full-stack Engineer at Docspert Health
+🔭 Open to remote backend / full-stack roles
+
+📫 [LinkedIn](https://www.linkedin.com/in/youssef-william-dev/) · youssefwilliam970@gmail.com
