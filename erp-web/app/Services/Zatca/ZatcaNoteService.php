@@ -227,9 +227,7 @@ class ZatcaNoteService
 
     public static function unpost(SalesDocument $doc): SalesDocument
     {
-        if (in_array($doc->zatca_status, ['reported', 'cleared', 'warning'], true)) {
-            throw new ErpException(__('This invoice was reported to ZATCA. Issue a return or credit note instead.'));
-        }
+        ZatcaService::assertCanUnpost($doc);
 
         return DB::transaction(function () use ($doc) {
             JournalService::removeFor($doc);

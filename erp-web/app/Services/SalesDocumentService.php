@@ -167,9 +167,7 @@ class SalesDocumentService
             return ZatcaNoteService::unpost($doc);
         }
 
-        if (in_array($doc->zatca_status, ['reported', 'cleared'], true)) {
-            throw new ErpException(__('This invoice was reported to ZATCA. Issue a return or credit note instead.'));
-        }
+        ZatcaService::assertCanUnpost($doc);
 
         if ($doc->convertedDocuments()->exists()) {
             throw new ErpException(__('This document was converted to a sales invoice. Delete the invoice first.'));

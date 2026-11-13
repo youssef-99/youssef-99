@@ -5,36 +5,62 @@ namespace App\Services\Zatca;
 use App\Models\EgsUnit;
 
 /**
- * ECDSA (SHA-256) signing with the EGS unit's private key, and the data the simplified-invoice
- * QR needs: tag 7 = signature, tag 8 = public key (DER), tag 9 = the CSID certificate's signature.
+ * ECDSA (secp256k1 / P-256, SHA-256) signing with the EGS unit's private key.
+ *
+ * Per the ZATCA security features specification the SignatureValue is the ECDSA signature of the
+ * invoice hash (not of ds:SignedInfo), and the same value is QR tag 7; tag 8 is the public key (DER),
+ * tag 9 the CSID certificate's own signature (simplified invoices).
  *
  * Returns null when the EGS unit has no usable private key (before onboarding).
- * The full XAdES UBLExtensions block is not produced here.
  */
 class ZatcaSigner
 {
     /**
-     * @return array{signature: string, public_key: string, certificate_signature: ?string}|null raw binary values
+     * @param  string  $invoiceHash  raw 32-byte SHA-256 digest
+     * @return array{signature: string, public_key: string, certificate: ?string, certificate_signature: ?string, issuer: ?string, serial: ?string}|null
      */
-    public function sign(string $canonicalXml, ?EgsUnit $egs): ?array
+    public function sign(string $invoiceHash, ?EgsUnit $egs): ?array
     {
         $key = $this->privateKey($egs?->private_key);
         if (! $key) {
             return null;
         }
 
-        if (! openssl_sign($canonicalXml, $signature, $key, OPENSSL_ALGO_SHA256)) {
+        if (! openssl_sign($invoiceHash, $signature, $key, OPENSSL_ALGO_SHA256)) {
             return null;
         }
 
         $details = openssl_pkey_get_details($key);
-        $publicKey = $this->pemToDer((string) ($details['key'] ?? ''));
+        $csid = $egs?->production_csid ?: $egs?->compliance_csid;
+        $der = $csid ? $this->certificateDer(trim($csid)) : null;
+        $parsed = $der ? openssl_x509_parse($this->derToPem($der)) : false;
 
         return [
             'signature' => $signature,
-            'public_key' => $publicKey,
-            'certificate_signature' => $this->certificateSignature($egs?->production_csid ?: $egs?->compliance_csid),
+            'public_key' => $this->pemToDer((string) ($details['key'] ?? '')),
+            'certificate' => $der ? base64_encode($der) : null,
+            'certificate_signature' => $der ? $this->certificateSignature($csid) : null,
+            'issuer' => $parsed ? $this->issuerName($parsed['issuer'] ?? []) : null,
+            'serial' => $parsed ? (string) ($parsed['serialNumber'] ?? '') : null,
         ];
+    }
+
+    /** @param  array<string, string|array<int, string>>  $issuer */
+    protected function issuerName(array $issuer): string
+    {
+        $parts = [];
+        foreach (array_reverse($issuer, true) as $name => $value) {
+            foreach ((array) $value as $v) {
+                $parts[] = $name.'='.$v;
+            }
+        }
+
+        return implode(', ', $parts);
+    }
+
+    protected function derToPem(string $der): string
+    {
+        return "-----BEGIN CERTIFICATE-----\n".chunk_split(base64_encode($der), 64, "\n")."-----END CERTIFICATE-----\n";
     }
 
     protected function privateKey(?string $value): \OpenSSLAsymmetricKey|false

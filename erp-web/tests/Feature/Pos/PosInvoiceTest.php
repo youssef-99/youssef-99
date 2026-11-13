@@ -8,6 +8,7 @@ use App\Filament\Resources\Pos\PosSalesInvoiceResource\Pages\CreatePosSalesInvoi
 use App\Models\SalesDocument;
 use App\Models\StockMovement;
 use App\Services\PosService;
+use App\Services\Settings;
 use App\Services\StockService;
 use Livewire\Livewire;
 use Tests\ErpTestCase;
@@ -137,6 +138,7 @@ class PosInvoiceTest extends ErpTestCase
 
     public function test_unpost_restores_stock_and_removes_the_entry(): void
     {
+        Settings::set('zatca.enabled', '0');
         $item = $this->item('1005');
         $before = StockService::balance($item->id);
         $doc = PosService::post($this->draftPos(['1005' => 3], ['cash_amount' => 200]));

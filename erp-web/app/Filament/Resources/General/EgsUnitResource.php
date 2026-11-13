@@ -83,7 +83,13 @@ class EgsUnitResource extends ErpResource
                 ->collapsed()
                 ->columns(2)
                 ->schema([
-                    Textarea::make('private_key')->label('Private Key')->rows(3)->columnSpanFull(),
+                    Textarea::make('private_key')
+                        ->label('Private Key')
+                        ->rows(3)
+                        ->columnSpanFull()
+                        ->formatStateUsing(fn (): ?string => null)
+                        ->placeholder(fn (?EgsUnit $record): ?string => filled($record?->private_key) ? __('Saved — leave blank to keep') : null)
+                        ->dehydrated(fn (?string $state): bool => filled($state)),
                     Textarea::make('csr')->label('CSR')->rows(3)->columnSpanFull(),
                     Textarea::make('compliance_csid')->label('Compliance CSID')->rows(2),
                     static::secretInput('compliance_secret', 'Compliance Secret'),

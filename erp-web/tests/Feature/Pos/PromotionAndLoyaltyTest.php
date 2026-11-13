@@ -68,6 +68,7 @@ class PromotionAndLoyaltyTest extends ErpTestCase
     public function test_points_are_earned_redeemed_and_reversed(): void
     {
         Settings::set(LoyaltyPointsService::POINT_VALUE_SETTING, '0.5');
+        Settings::set('zatca.enabled', '0');
         $customer = PointsCustomer::query()->firstOrFail();
         $customer->update(['points_balance' => 100]);
         PointsTransaction::query()->delete();

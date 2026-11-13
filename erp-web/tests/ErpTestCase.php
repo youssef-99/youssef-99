@@ -7,6 +7,7 @@ use Database\Seeders\DemoSeeder;
 use Database\Seeders\SystemSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 
 /**
  * Base for ERP feature tests: fresh DB with the system seed (chart of accounts,
@@ -21,6 +22,7 @@ abstract class ErpTestCase extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        Http::preventStrayRequests();
         $this->seed(SystemSeeder::class);
         Cache::forget('erp.settings');
         $this->admin = User::query()->where('username', 'admin')->firstOrFail();

@@ -31,7 +31,7 @@ class PosService
                 PromotionService::applyToDocument($doc);
             }
 
-            $doc->points_discount = LoyaltyPointsService::discountFor((float) $doc->points_redeemed);
+            static::applyPointsDiscount($doc);
         }
 
         // The posting engine treats cash + card as "received"; POS "Amount Received" is the cash tendered.
@@ -48,6 +48,27 @@ class PosService
         $doc->saveQuietly();
 
         return $doc;
+    }
+
+    /**
+     * Redeemed points are given as additional discount (the form adds them live; this keeps the
+     * server authoritative): the fixed additional discount is at least the points value.
+     */
+    protected static function applyPointsDiscount(SalesDocument $doc): void
+    {
+        $pointsDiscount = LoyaltyPointsService::discountFor((float) $doc->points_redeemed);
+        $doc->points_discount = $pointsDiscount;
+        if ($pointsDiscount <= 0) {
+            return;
+        }
+
+        if ((float) $doc->additional_discount_percent > 0) {
+            $taxable = (float) $doc->lines()->get()->sum(fn ($l) => (float) $l->gross - (float) $l->discount);
+            $doc->additional_discount = round($taxable * (float) $doc->additional_discount_percent / 100, 2) + $pointsDiscount;
+            $doc->additional_discount_percent = 0;
+        } elseif ((float) $doc->additional_discount < $pointsDiscount) {
+            $doc->additional_discount = $pointsDiscount;
+        }
     }
 
     public static function post(SalesDocument $doc): SalesDocument
@@ -155,7 +176,12 @@ class PosService
     {
         $original = $doc->originalDocument;
         $total = round((float) $doc->grand_total, 2);
-        $card = $original ? min($total, round((float) $original->card_amount, 2)) : 0.0;
+        $cardRefunded = $original ? (float) $original->returns()
+            ->where('type', SalesDocumentType::PosReturn->value)
+            ->where('is_posted', true)
+            ->when($doc->exists, fn ($q) => $q->whereKeyNot($doc->id))
+            ->sum('card_amount') : 0.0;
+        $card = $original ? min($total, max(0, round((float) $original->card_amount - $cardRefunded, 2))) : 0.0;
 
         $doc->fill([
             'card_amount' => $card,

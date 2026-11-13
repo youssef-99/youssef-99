@@ -13,9 +13,9 @@ use App\Models\EgsUnit;
 use App\Models\SalesDocument;
 use App\Services\PosService;
 use App\Services\Settings;
-use App\Services\Zatca\UblInvoiceBuilder;
 use App\Services\Zatca\ZatcaNoteService;
 use App\Services\Zatca\ZatcaService;
+use App\Services\Zatca\ZatcaXml;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Livewire\Livewire;
@@ -86,9 +86,8 @@ class ZatcaTest extends ErpTestCase
         $this->assertArrayHasKey(9, $tags);
 
         $publicKey = openssl_pkey_get_public("-----BEGIN PUBLIC KEY-----\n".chunk_split(base64_encode($tags[8]), 64, "\n")."-----END PUBLIC KEY-----\n");
-        $hashInput = ZatcaService::canonicalize((new UblInvoiceBuilder)->build($second));
-        $this->assertSame($second->zatca_hash, base64_encode(hash('sha256', $hashInput, true)));
-        $this->assertSame(1, openssl_verify($hashInput, base64_decode($tags[7]), $publicKey, OPENSSL_ALGO_SHA256));
+        $this->assertSame($second->zatca_hash, ZatcaXml::invoiceHash($second->zatca_xml));
+        $this->assertSame(1, openssl_verify(base64_decode($second->zatca_hash), base64_decode($tags[7]), $publicKey, OPENSSL_ALGO_SHA256));
 
         // Regenerating keeps the place in the chain.
         app(ZatcaService::class)->prepare($first->refresh());

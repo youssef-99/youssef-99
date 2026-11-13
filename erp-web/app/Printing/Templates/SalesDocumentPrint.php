@@ -65,7 +65,7 @@ class SalesDocumentPrint extends PrintTemplate
             return null;
         }
 
-        if (filled($doc->zatca_qr)) {
+        if ($doc->is_posted && filled($doc->zatca_qr)) {
             return $doc->zatca_qr;
         }
 

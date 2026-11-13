@@ -74,13 +74,13 @@ class ZatcaDocumentTable
                     Action::make('zatcaGenerate')
                         ->label('Generate / Sign')
                         ->icon('heroicon-o-finger-print')
-                        ->visible(fn (SalesDocument $record) => $canSubmit() && ! in_array($record->zatca_status, ['reported', 'cleared'], true))
+                        ->visible(fn (SalesDocument $record) => $canSubmit() && ! in_array($record->zatca_status, ZatcaService::ACCEPTED, true))
                         ->action(function (SalesDocument $record) {
                             app(ZatcaService::class)->prepare($record);
                             Notification::make()->success()->title(__('The e-invoice was generated and signed.'))->send();
                         }),
                     Action::make('zatcaSubmit')
-                        ->label(fn (SalesDocument $record) => in_array($record->zatca_status, ['rejected', 'error', 'warning'], true) ? 'Resubmit' : 'Submit')
+                        ->label(fn (SalesDocument $record) => in_array($record->zatca_status, ['rejected', 'error'], true) ? 'Resubmit' : 'Submit')
                         ->icon('heroicon-o-paper-airplane')
                         ->color('success')
                         ->requiresConfirmation()
@@ -135,7 +135,7 @@ class ZatcaDocumentTable
         $service = app(ZatcaService::class);
 
         try {
-            return in_array($record->zatca_status, ['rejected', 'error', 'warning'], true) ? $service->resubmit($record) : $service->submit($record);
+            return in_array($record->zatca_status, ['rejected', 'error'], true) ? $service->resubmit($record) : $service->submit($record);
         } catch (ErpException $e) {
             $record->zatca_error = $e->getMessage();
 

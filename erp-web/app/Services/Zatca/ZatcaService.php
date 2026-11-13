@@ -2,10 +2,12 @@
 
 namespace App\Services\Zatca;
 
+use App\Enums\SalesDocumentType;
 use App\Exceptions\ErpException;
 use App\Models\Company;
 use App\Models\EgsUnit;
 use App\Models\SalesDocument;
+use App\Models\Setting;
 use App\Services\Settings;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -45,6 +47,8 @@ class ZatcaService
 
     public const ACCEPTED = ['reported', 'cleared', 'warning'];
 
+    public const FALLBACK_CHAIN_KEY = 'zatca.fallback_chain';
+
     public static function statusColor(?string $status): string
     {
         return match ($status) {
@@ -68,13 +72,43 @@ class ZatcaService
         return filled($doc->customer?->vat_no ?? $doc->cashCustomer?->vat_no) ? 'standard' : 'simplified';
     }
 
-    /** Assign ICV/PIH (once), build the XML, hash, sign and QR. Status becomes "pending" when new. */
+    /** Returns and notes must reference the invoice they correct (BR-KSA-56, billing reference). */
+    public function assertReportable(SalesDocument $doc): void
+    {
+        $type = SalesDocumentType::tryFrom((string) $doc->type);
+        $needsReference = $type?->isReturn() || in_array($doc->type, ZatcaNoteService::TYPES, true);
+
+        if ($needsReference && ! $doc->original_document_id) {
+            throw new ErpException(__('Select the original invoice: ZATCA credit and debit notes must reference the invoice they correct.'));
+        }
+    }
+
+    /** Once a document has its place in the ZATCA chain (ICV) it can no longer be unposted or deleted. */
+    public static function assertCanUnpost(SalesDocument $doc): void
+    {
+        if (in_array($doc->zatca_status, self::ACCEPTED, true)) {
+            throw new ErpException(__('This invoice was reported to ZATCA. Issue a return or credit note instead.'));
+        }
+
+        if ($doc->zatca_icv) {
+            throw new ErpException(__('This document has a ZATCA invoice counter (ICV). Issue a credit note instead.'));
+        }
+    }
+
+    /**
+     * Assign ICV/PIH (once), build the final XML, hash it, sign (XAdES) and add the QR. Status becomes "pending" when new.
+     * Runs inside the posting transaction; the EGS row lock is released when that transaction commits
+     * (no network call happens while it is held: submission is deferred until after commit).
+     */
     public function prepare(SalesDocument $doc): SalesDocument
     {
+        $this->assertReportable($doc);
+
         return DB::transaction(function () use ($doc) {
             $doc->loadMissing('lines.item', 'customer', 'cashCustomer', 'branch.company', 'originalDocument.customer', 'originalDocument.cashCustomer');
             $egs = $this->egsFor($doc);
             $isNew = ! $doc->zatca_icv;
+            $fallback = null;
 
             $doc->zatca_invoice_type = $this->invoiceTypeFor($doc);
 
@@ -84,19 +118,24 @@ class ZatcaService
                     $doc->zatca_icv = $egs->last_icv + 1;
                     $doc->zatca_previous_hash = $egs->last_invoice_hash ?: self::INITIAL_PIH;
                 } else {
-                    $last = SalesDocument::query()->whereNotNull('zatca_icv')->whereKeyNot($doc->id)->orderByDesc('zatca_icv')->first(['zatca_icv', 'zatca_hash']);
-                    $doc->zatca_icv = (int) $last?->zatca_icv + 1;
-                    $doc->zatca_previous_hash = $last?->zatca_hash ?: self::INITIAL_PIH;
+                    $fallback = $this->lockFallbackChain();
+                    $chain = json_decode((string) $fallback->value, true) ?: [];
+                    $doc->zatca_icv = (int) ($chain['icv'] ?? 0) + 1;
+                    $doc->zatca_previous_hash = ($chain['hash'] ?? null) ?: self::INITIAL_PIH;
                 }
             }
 
-            $builder = new UblInvoiceBuilder;
-            $canonical = static::canonicalize($builder->build($doc));
-            $doc->zatca_hash = base64_encode(hash('sha256', $canonical, true));
+            $dom = ZatcaXml::load((new UblInvoiceBuilder)->build($doc, withSignature: (bool) $egs?->private_key));
+            $doc->zatca_hash = ZatcaXml::invoiceHash($dom);
 
-            $signed = app(ZatcaSigner::class)->sign($canonical, $egs);
+            $signed = app(ZatcaSigner::class)->sign(base64_decode($doc->zatca_hash), $egs);
+            if ($signed) {
+                ZatcaXml::applySignature($dom, $doc->zatca_hash, $signed, now());
+            }
+
             $doc->zatca_qr = $this->qr($doc, $signed);
-            $doc->zatca_xml = $builder->build($doc, $doc->zatca_qr, $signed ? base64_encode($signed['signature']) : null);
+            ZatcaXml::setQr($dom, $doc->zatca_qr);
+            $doc->zatca_xml = (string) $dom->saveXML();
             $doc->zatca_status ??= 'pending';
             $doc->saveQuietly();
 
@@ -104,19 +143,34 @@ class ZatcaService
                 $egs->forceFill(['last_icv' => $doc->zatca_icv, 'last_invoice_hash' => $doc->zatca_hash])->saveQuietly();
             }
 
+            if ($fallback) {
+                $fallback->forceFill(['value' => json_encode(['icv' => $doc->zatca_icv, 'hash' => $doc->zatca_hash])])->save();
+            }
+
             return $doc;
         });
     }
 
-    public static function canonicalize(string $xml): string
+    /**
+     * Branches without an EGS unit share one chain kept in a locked settings row
+     * (initialised from the highest ICV already issued without an EGS unit).
+     */
+    protected function lockFallbackChain(): Setting
     {
-        $dom = new \DOMDocument;
-        $dom->preserveWhiteSpace = false;
-        if (! @$dom->loadXML($xml)) {
-            return $xml;
+        $row = Setting::query()->where('key', self::FALLBACK_CHAIN_KEY)->lockForUpdate()->first();
+
+        if (! $row) {
+            $last = SalesDocument::query()->whereNotNull('zatca_icv')->orderByDesc('zatca_icv')->first(['zatca_icv', 'zatca_hash']);
+            Setting::query()->insertOrIgnore([
+                'key' => self::FALLBACK_CHAIN_KEY,
+                'value' => json_encode(['icv' => (int) $last?->zatca_icv, 'hash' => $last?->zatca_hash]),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            $row = Setting::query()->where('key', self::FALLBACK_CHAIN_KEY)->lockForUpdate()->firstOrFail();
         }
 
-        return (string) $dom->C14N();
+        return $row;
     }
 
     /**
@@ -127,13 +181,15 @@ class ZatcaService
     public function qr(SalesDocument $doc, ?array $signed = null): string
     {
         $company = $doc->branch?->company ?? Company::query()->first();
+        $doc->loadMissing('lines.item');
+        $amounts = UblInvoiceBuilder::breakdown($doc);
 
         $tags = [
             1 => (string) ($company?->name_ar ?? config('app.name')),
             2 => (string) ($company?->vat_no ?? ''),
             3 => static::timestamp($doc),
-            4 => number_format((float) $doc->grand_total, 2, '.', ''),
-            5 => number_format((float) $doc->tax_total, 2, '.', ''),
+            4 => number_format($amounts['tax_inclusive'], 2, '.', ''),
+            5 => number_format($amounts['tax_total'], 2, '.', ''),
         ];
 
         if ($doc->zatca_hash) {
@@ -221,38 +277,72 @@ class ZatcaService
     }
 
     /**
-     * After posting: submit right away when the submission mode is "on_post" and the branch has an onboarded
-     * EGS unit (or offline mode); with auto-resubmit, earlier failed documents of the branch are retried first.
+     * After posting: in "on_post" mode, submit once the posting transaction has committed (never while the
+     * EGS row is locked, never for a posting that rolls back). Only the current document is sent inline;
+     * the backlog (pending / failed documents) is retried by the scheduled `zatca:submit-pending` command.
      */
     public function afterPost(SalesDocument $doc): SalesDocument
     {
-        if (! static::enabled() || static::submissionMode() !== 'on_post') {
+        if (! static::enabled() || static::submissionMode() !== 'on_post' || ! $this->canSendNow($doc)) {
             return $doc;
         }
 
+        DB::afterCommit(function () use ($doc) {
+            try {
+                $this->submit($doc->refresh());
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        });
+
+        return $doc;
+    }
+
+    /** Onboarded EGS unit (or offline mode) available for the document's branch. */
+    public function canSendNow(SalesDocument $doc): bool
+    {
         $egs = $this->egsFor($doc);
-        if (! static::isOffline() && ! ($egs?->production_csid ?: $egs?->compliance_csid)) {
-            return $doc;
+
+        return static::isOffline() || filled($egs?->production_csid ?: $egs?->compliance_csid);
+    }
+
+    /**
+     * Submit posted documents still pending or in error (oldest ICV first), used by `zatca:submit-pending`.
+     *
+     * @return array{sent: int, accepted: int, failed: int}
+     */
+    public function submitPending(int $olderThanMinutes = 5, int $limit = 100, bool $includeErrors = true): array
+    {
+        $result = ['sent' => 0, 'accepted' => 0, 'failed' => 0];
+        if (! static::enabled()) {
+            return $result;
         }
 
-        if (static::autoResubmit()) {
-            SalesDocument::query()
-                ->where('branch_id', $doc->branch_id)
-                ->where('is_posted', true)
-                ->where('zatca_status', 'error')
-                ->whereKeyNot($doc->id)
-                ->orderBy('zatca_icv')
-                ->limit(20)
-                ->get()
-                ->each(fn (SalesDocument $failed) => $this->submit($failed));
-        }
+        $statuses = $includeErrors && static::autoResubmit() ? ['pending', 'error'] : ['pending'];
 
-        return $this->submit($doc);
+        SalesDocument::query()
+            ->where('is_posted', true)
+            ->whereNotNull('zatca_icv')
+            ->whereIn('zatca_status', $statuses)
+            ->where('posted_at', '<=', now()->subMinutes($olderThanMinutes))
+            ->orderBy('zatca_icv')
+            ->limit($limit)
+            ->get()
+            ->each(function (SalesDocument $doc) use (&$result) {
+                if (! $this->canSendNow($doc)) {
+                    return;
+                }
+                $doc = $doc->zatca_status === 'error' ? $this->resubmit($doc) : $this->submit($doc);
+                $result['sent']++;
+                $result[in_array($doc->zatca_status, self::ACCEPTED, true) ? 'accepted' : 'failed']++;
+            });
+
+        return $result;
     }
 
     public function canSubmit(SalesDocument $doc): bool
     {
-        return $doc->is_posted && ! in_array($doc->zatca_status, ['reported', 'cleared'], true);
+        return $doc->is_posted && ! in_array($doc->zatca_status, self::ACCEPTED, true);
     }
 
     /** Regenerate the XML (same ICV / PIH) and send again. */
@@ -274,7 +364,7 @@ class ZatcaService
             throw new ErpException(__('Post the document before sending it to ZATCA.'));
         }
 
-        if (in_array($doc->zatca_status, ['reported', 'cleared'], true)) {
+        if (in_array($doc->zatca_status, self::ACCEPTED, true)) {
             return $doc;
         }
 
