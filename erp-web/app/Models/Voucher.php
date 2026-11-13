@@ -2,9 +2,11 @@
 
 namespace App\Models;
 
+use App\Enums\VoucherType;
+use App\Services\VoucherService;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Voucher extends Model
 {
@@ -55,11 +57,11 @@ class Voucher extends Model
 
     protected static function booted(): void
     {
-        static::creating(fn (Voucher $voucher) => \App\Services\VoucherService::initialize($voucher));
+        static::creating(fn (Voucher $voucher) => VoucherService::initialize($voucher));
     }
 
-    public function typeEnum(): \App\Enums\VoucherType
+    public function typeEnum(): VoucherType
     {
-        return \App\Enums\VoucherType::from($this->type);
+        return VoucherType::from($this->type);
     }
 }

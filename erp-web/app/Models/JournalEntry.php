@@ -2,10 +2,12 @@
 
 namespace App\Models;
 
+use App\Services\DocumentNumber;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\MorphTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Support\Carbon;
 
 class JournalEntry extends Model
 {
@@ -47,11 +49,11 @@ class JournalEntry extends Model
     protected static function booted(): void
     {
         static::creating(function (JournalEntry $e) {
-            $e->fiscal_year ??= (int) \Illuminate\Support\Carbon::parse($e->date ?? now())->format('Y');
+            $e->fiscal_year ??= (int) Carbon::parse($e->date ?? now())->format('Y');
             $e->entry_type ??= 'manual';
             $e->created_by ??= auth()->id();
             if (blank($e->number)) {
-                $e->number = \App\Services\DocumentNumber::next('journal.'.$e->entry_type, $e->branch_id, $e->fiscal_year);
+                $e->number = DocumentNumber::next('journal.'.$e->entry_type, $e->branch_id, $e->fiscal_year);
             }
         });
     }

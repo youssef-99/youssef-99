@@ -7,6 +7,7 @@ use App\Models\Account;
 use App\Models\JournalEntry;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -28,7 +29,7 @@ class JournalService
         ?string $description = null,
         bool $post = true,
     ): JournalEntry {
-        $date = \Illuminate\Support\Carbon::parse($date);
+        $date = Carbon::parse($date);
         $lines = static::normalize($lines);
         static::assertBalanced($lines);
 

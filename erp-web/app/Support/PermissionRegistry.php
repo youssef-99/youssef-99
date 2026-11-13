@@ -3,6 +3,8 @@
 namespace App\Support;
 
 use App\Enums\Module;
+use App\Enums\Permission;
+use App\Reports\ReportRegistry;
 use Filament\Facades\Filament;
 
 /**
@@ -39,6 +41,13 @@ class PermissionRegistry
             }
 
             $tree[$module->value]['pages'][$key] = ['label' => $label, 'actions' => $actions];
+        }
+
+        // Reports register themselves through App\Reports\ReportRegistry::permissionPages(): [key => label]
+        if (class_exists(ReportRegistry::class) && method_exists(ReportRegistry::class, 'permissionPages')) {
+            foreach (ReportRegistry::permissionPages() as $key => $label) {
+                $tree[Module::Reports->value]['pages'][$key] = ['label' => $label, 'actions' => ["{$key}.view" => Permission::View->label()]];
+            }
         }
 
         return array_filter($tree, fn ($node) => $node['pages'] !== []);

@@ -19,6 +19,7 @@ use App\Models\Salesman;
 use App\Models\Supplier;
 use App\Models\SupplierGroup;
 use App\Models\Unit;
+use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\PartyAccountService;
 use App\Services\PurchaseDocumentService;
@@ -36,7 +37,7 @@ class DemoSeeder extends Seeder
             return;
         }
 
-        auth()->loginUsingId(\App\Models\User::query()->where('username', 'admin')->value('id'));
+        auth()->loginUsingId(User::query()->where('username', 'admin')->value('id'));
 
         $branch = Branch::query()->first();
         $warehouse = Warehouse::query()->first();

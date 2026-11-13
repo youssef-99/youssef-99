@@ -7,6 +7,7 @@ use App\Exceptions\ErpException;
 use App\Models\ChequeCollection;
 use App\Models\Voucher;
 use App\Models\VoucherLine;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -21,7 +22,7 @@ class VoucherService
 
     public static function initialize(Voucher $voucher): void
     {
-        $voucher->fiscal_year ??= (int) \Illuminate\Support\Carbon::parse($voucher->date ?? now())->format('Y');
+        $voucher->fiscal_year ??= (int) Carbon::parse($voucher->date ?? now())->format('Y');
         $voucher->created_by ??= auth()->id();
 
         if ($voucher->type === VoucherType::ReceiptCheque->value) {

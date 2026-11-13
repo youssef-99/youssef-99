@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class User extends Authenticatable implements FilamentUser, HasName
@@ -65,7 +66,7 @@ class User extends Authenticatable implements FilamentUser, HasName
     }
 
     /** Active sessions other than the given one (used for single-session login). */
-    public function otherActiveSessions(?string $exceptSessionId = null): \Illuminate\Support\Collection
+    public function otherActiveSessions(?string $exceptSessionId = null): Collection
     {
         if (config('session.driver') !== 'database') {
             return collect();

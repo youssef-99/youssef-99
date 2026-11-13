@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\HasBilingualName;
+use App\Services\JournalService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -41,7 +42,7 @@ class Account extends Model
     /** @return array{opening: float, debit: float, credit: float, closing: float} */
     public function balance(?string $from = null, ?string $to = null, ?int $branchId = null): array
     {
-        return \App\Services\JournalService::balance($this->descendantIds(), $from, $to, $branchId);
+        return JournalService::balance($this->descendantIds(), $from, $to, $branchId);
     }
 
     /** This account and all descendants (for parent-account balances). */

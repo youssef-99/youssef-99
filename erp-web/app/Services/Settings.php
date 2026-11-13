@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Exceptions\ErpException;
 use App\Models\Setting;
 use Illuminate\Support\Facades\Cache;
 
@@ -60,7 +61,7 @@ class Settings
 
     public static function accountOrFail(string $key): int
     {
-        return static::account($key) ?? throw new \App\Exceptions\ErpException(
+        return static::account($key) ?? throw new ErpException(
             __('Default account ":key" is not configured. Set it in General > System Settings.', ['key' => __(self::ACCOUNT_KEYS["accounts.{$key}"] ?? $key)])
         );
     }

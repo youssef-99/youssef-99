@@ -2,9 +2,11 @@
 
 namespace App\Models;
 
+use App\Services\DocumentNumber;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 
 class ChequeCollection extends Model
 {
@@ -47,9 +49,9 @@ class ChequeCollection extends Model
     protected static function booted(): void
     {
         static::creating(function (ChequeCollection $c) {
-            $c->fiscal_year ??= (int) \Illuminate\Support\Carbon::parse($c->date ?? now())->format('Y');
+            $c->fiscal_year ??= (int) Carbon::parse($c->date ?? now())->format('Y');
             if (blank($c->number)) {
-                $c->number = \App\Services\DocumentNumber::next('cheque_collection', $c->branch_id, $c->fiscal_year);
+                $c->number = DocumentNumber::next('cheque_collection', $c->branch_id, $c->fiscal_year);
             }
         });
     }

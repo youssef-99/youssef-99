@@ -52,7 +52,7 @@ class ZatcaService
                 }
             }
 
-            $xml = (new UblInvoiceBuilder())->build($doc);
+            $xml = (new UblInvoiceBuilder)->build($doc);
             $doc->zatca_hash = base64_encode(hash('sha256', $xml, true));
             $doc->zatca_xml = $this->sign($xml, $egs);
             $doc->zatca_qr = $this->qr($doc);

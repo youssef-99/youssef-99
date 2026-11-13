@@ -17,6 +17,8 @@ use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 
 /**
  * Shared form for credit sales documents: quotations, customer orders, sales invoices and returns.
@@ -41,7 +43,7 @@ class SalesDocumentForm
                     $set('salesman_id', $customer?->salesman_id);
                     $set('sales_policy_id', $customer?->sales_policy_id);
                     if ($customer?->payment_term_days) {
-                        $set('due_date', \Illuminate\Support\Carbon::parse($get('date') ?? now())->addDays($customer->payment_term_days)->toDateString());
+                        $set('due_date', Carbon::parse($get('date') ?? now())->addDays($customer->payment_term_days)->toDateString());
                     }
                 }),
             Fields::account(label: 'Account')->required(),
@@ -89,7 +91,7 @@ class SalesDocumentForm
 
         $lines = [];
         foreach ($original->lines as $line) {
-            $lines[(string) \Illuminate\Support\Str::uuid()] = $line->only(['item_id', 'unit_id', 'item_batch_id', 'quantity', 'unit_price', 'discount_percent', 'tax_percent', 'gross', 'discount', 'tax', 'net']);
+            $lines[(string) Str::uuid()] = $line->only(['item_id', 'unit_id', 'item_batch_id', 'quantity', 'unit_price', 'discount_percent', 'tax_percent', 'gross', 'discount', 'tax', 'net']);
         }
         $set('lines', $lines);
         $set('customer_id', $original->customer_id);

@@ -23,7 +23,7 @@ class UblInvoiceBuilder
         $buyer = $doc->customer ?? $doc->cashCustomer;
         $time = $doc->time ?: ($doc->created_at?->format('H:i:s') ?? '00:00:00');
 
-        $x = new \XMLWriter();
+        $x = new \XMLWriter;
         $x->openMemory();
         $x->setIndent(true);
         $x->startDocument('1.0', 'UTF-8');

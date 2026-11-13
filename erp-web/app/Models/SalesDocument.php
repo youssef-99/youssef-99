@@ -2,9 +2,11 @@
 
 namespace App\Models;
 
+use App\Enums\SalesDocumentType;
+use App\Services\SalesDocumentService;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class SalesDocument extends Model
 {
@@ -117,11 +119,11 @@ class SalesDocument extends Model
 
     protected static function booted(): void
     {
-        static::creating(fn (SalesDocument $doc) => \App\Services\SalesDocumentService::initialize($doc));
+        static::creating(fn (SalesDocument $doc) => SalesDocumentService::initialize($doc));
     }
 
-    public function typeEnum(): \App\Enums\SalesDocumentType
+    public function typeEnum(): SalesDocumentType
     {
-        return \App\Enums\SalesDocumentType::from($this->type);
+        return SalesDocumentType::from($this->type);
     }
 }

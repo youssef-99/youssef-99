@@ -2,6 +2,18 @@
 
 namespace App\Providers;
 
+use App\Models\AccreditationFee;
+use App\Models\ChequeCollection;
+use App\Models\Customer;
+use App\Models\FinancingContract;
+use App\Models\Item;
+use App\Models\JournalEntry;
+use App\Models\PurchaseDocument;
+use App\Models\SalesDocument;
+use App\Models\StockDocument;
+use App\Models\Supplier;
+use App\Models\User;
+use App\Models\Voucher;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Field;
 use Filament\Infolists\Components\Entry;
@@ -39,18 +51,18 @@ class AppServiceProvider extends ServiceProvider
 
         // Short morph names for polymorphic source columns (journal entries, stock movements).
         Relation::enforceMorphMap([
-            'user' => \App\Models\User::class,
-            'sales_document' => \App\Models\SalesDocument::class,
-            'purchase_document' => \App\Models\PurchaseDocument::class,
-            'stock_document' => \App\Models\StockDocument::class,
-            'voucher' => \App\Models\Voucher::class,
-            'cheque_collection' => \App\Models\ChequeCollection::class,
-            'journal_entry' => \App\Models\JournalEntry::class,
-            'customer' => \App\Models\Customer::class,
-            'supplier' => \App\Models\Supplier::class,
-            'accreditation_fee' => \App\Models\AccreditationFee::class,
-            'financing_contract' => \App\Models\FinancingContract::class,
-            'item' => \App\Models\Item::class,
+            'user' => User::class,
+            'sales_document' => SalesDocument::class,
+            'purchase_document' => PurchaseDocument::class,
+            'stock_document' => StockDocument::class,
+            'voucher' => Voucher::class,
+            'cheque_collection' => ChequeCollection::class,
+            'journal_entry' => JournalEntry::class,
+            'customer' => Customer::class,
+            'supplier' => Supplier::class,
+            'accreditation_fee' => AccreditationFee::class,
+            'financing_contract' => FinancingContract::class,
+            'item' => Item::class,
         ]);
     }
 }

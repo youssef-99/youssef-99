@@ -3,8 +3,10 @@
 namespace Tests;
 
 use App\Models\User;
+use Database\Seeders\DemoSeeder;
 use Database\Seeders\SystemSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * Base for ERP feature tests: fresh DB with the system seed (chart of accounts,
@@ -20,14 +22,14 @@ abstract class ErpTestCase extends TestCase
     {
         parent::setUp();
         $this->seed(SystemSeeder::class);
-        \Illuminate\Support\Facades\Cache::forget('erp.settings');
+        Cache::forget('erp.settings');
         $this->admin = User::query()->where('username', 'admin')->firstOrFail();
         $this->actingAs($this->admin);
     }
 
     protected function seedDemo(): void
     {
-        $this->seed(\Database\Seeders\DemoSeeder::class);
+        $this->seed(DemoSeeder::class);
         $this->actingAs($this->admin);
     }
 }

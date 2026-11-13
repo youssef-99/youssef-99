@@ -13,10 +13,12 @@ use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Repeater\TableColumn;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
+use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 
 /**
@@ -105,7 +107,7 @@ class DocumentLines
 
                 return StockService::batchBalances((int) $get('item_id'), $get('../../warehouse_id'))
                     ->filter(fn ($b) => $b->item_batch_id)
-                    ->mapWithKeys(fn ($b) => [$b->item_batch_id => $b->batch_no.' / '.($b->expiry_date ? \Illuminate\Support\Carbon::parse($b->expiry_date)->format('m/Y') : '-').' ('.(float) $b->balance.')'])
+                    ->mapWithKeys(fn ($b) => [$b->item_batch_id => $b->batch_no.' / '.($b->expiry_date ? Carbon::parse($b->expiry_date)->format('m/Y') : '-').' ('.(float) $b->balance.')'])
                     ->all();
             })
             ->placeholder('-');
@@ -285,7 +287,7 @@ class DocumentLines
                     ->first();
                 $set('scan', null);
                 if (! $item) {
-                    \Filament\Notifications\Notification::make()->warning()->title(__('Item not found: :code', ['code' => $code]))->send();
+                    Notification::make()->warning()->title(__('Item not found: :code', ['code' => $code]))->send();
 
                     return;
                 }

@@ -6,6 +6,7 @@ use App\Enums\StockDocumentType;
 use App\Exceptions\ErpException;
 use App\Models\StockDocument;
 use App\Services\Calc\DocumentCalculator;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -20,7 +21,7 @@ class StockDocumentService
 
     public static function initialize(StockDocument $doc): void
     {
-        $doc->fiscal_year ??= (int) \Illuminate\Support\Carbon::parse($doc->date ?? now())->format('Y');
+        $doc->fiscal_year ??= (int) Carbon::parse($doc->date ?? now())->format('Y');
         $doc->created_by ??= auth()->id();
 
         if (blank($doc->number)) {

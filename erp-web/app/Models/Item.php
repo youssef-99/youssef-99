@@ -3,10 +3,11 @@
 namespace App\Models;
 
 use App\Models\Concerns\HasBilingualName;
+use App\Services\StockService;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Item extends Model
 {
@@ -87,7 +88,7 @@ class Item extends Model
     /** Stock on hand (all warehouses unless given). */
     public function balance(?int $warehouseId = null, ?int $branchId = null): float
     {
-        return \App\Services\StockService::balance($this->id, $warehouseId, null, $branchId);
+        return StockService::balance($this->id, $warehouseId, null, $branchId);
     }
 
     public function isBatchTracked(): bool

@@ -7,6 +7,8 @@ use App\Models\Item;
 use App\Models\ItemBatch;
 use App\Models\StockMovement;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -26,8 +28,8 @@ class StockService
             ->sum(DB::raw('qty_in - qty_out')), 3);
     }
 
-    /** @return \Illuminate\Support\Collection<int, object{item_batch_id:int|null, batch_no:string|null, expiry_date:string|null, balance:float}> */
-    public static function batchBalances(int $itemId, ?int $warehouseId = null): \Illuminate\Support\Collection
+    /** @return Collection<int, object{item_batch_id:int|null, batch_no:string|null, expiry_date:string|null, balance:float}> */
+    public static function batchBalances(int $itemId, ?int $warehouseId = null): Collection
     {
         return DB::table('stock_movements as m')
             ->leftJoin('item_batches as b', 'b.id', '=', 'm.item_batch_id')
@@ -50,7 +52,7 @@ class StockService
         return ItemBatch::query()->firstOrCreate([
             'item_id' => $item->id,
             'batch_no' => $batchNo ?: '-',
-            'expiry_date' => $expiryDate ? \Illuminate\Support\Carbon::parse($expiryDate)->toDateString() : null,
+            'expiry_date' => $expiryDate ? Carbon::parse($expiryDate)->toDateString() : null,
         ]);
     }
 
@@ -70,7 +72,7 @@ class StockService
     {
         if ($item->item_nature === 'service' || $item->item_type === 'service') {
             // services do not move stock
-            return new StockMovement();
+            return new StockMovement;
         }
 
         if ($qty < 0 && ! $allowNegative) {
@@ -98,7 +100,7 @@ class StockService
             'item_batch_id' => $batchId,
             'branch_id' => $branchId,
             'warehouse_id' => $warehouseId,
-            'date' => \Illuminate\Support\Carbon::parse($date)->toDateString(),
+            'date' => Carbon::parse($date)->toDateString(),
             'movement_type' => $type,
             'qty_in' => $qty > 0 ? $qty : 0,
             'qty_out' => $qty < 0 ? -$qty : 0,

@@ -7,6 +7,7 @@ use App\Exceptions\ErpException;
 use App\Models\PurchaseDocument;
 use App\Models\Warehouse;
 use App\Services\Calc\DocumentCalculator;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -24,12 +25,12 @@ class PurchaseDocumentService
 
     public static function initialize(PurchaseDocument $doc): void
     {
-        $doc->fiscal_year ??= (int) \Illuminate\Support\Carbon::parse($doc->date ?? now())->format('Y');
+        $doc->fiscal_year ??= (int) Carbon::parse($doc->date ?? now())->format('Y');
         $doc->warehouse_id ??= Warehouse::query()->where('branch_id', $doc->branch_id)->value('id');
         $doc->created_by ??= auth()->id();
 
         if ($doc->payment_period_days && ! $doc->due_date) {
-            $doc->due_date = \Illuminate\Support\Carbon::parse($doc->date)->addDays((int) $doc->payment_period_days);
+            $doc->due_date = Carbon::parse($doc->date)->addDays((int) $doc->payment_period_days);
         }
 
         if (blank($doc->number)) {

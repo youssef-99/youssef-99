@@ -27,8 +27,8 @@ class SystemSeeder extends Seeder
     public function run(): void
     {
         $company = Company::query()->firstOrCreate(['code' => '1'], [
-            'name_ar' => 'صيدلية التوافق الطبية',
-            'name_en' => 'Al-Tawafuq Medical Pharmacy',
+            'name_ar' => 'صيدلية النموذج الطبية',
+            'name_en' => 'Demo Medical Pharmacy',
             'commercial_register' => '1010000000',
             'vat_no' => '300000000000003',
             'phone' => '0110000000',

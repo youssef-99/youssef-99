@@ -10,6 +10,7 @@ use App\Models\SalesDocument;
 use App\Models\Warehouse;
 use App\Services\Calc\DocumentCalculator;
 use App\Services\Zatca\ZatcaService;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -27,7 +28,7 @@ class SalesDocumentService
     public static function initialize(SalesDocument $doc): void
     {
         $doc->uuid ??= (string) Str::uuid();
-        $doc->fiscal_year ??= (int) \Illuminate\Support\Carbon::parse($doc->date ?? now())->format('Y');
+        $doc->fiscal_year ??= (int) Carbon::parse($doc->date ?? now())->format('Y');
         $doc->warehouse_id ??= Warehouse::query()->where('branch_id', $doc->branch_id)->value('id');
         $doc->created_by ??= auth()->id();
 

@@ -2,9 +2,11 @@
 
 namespace App\Models;
 
+use App\Enums\StockDocumentType;
+use App\Services\StockDocumentService;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class StockDocument extends Model
 {
@@ -84,11 +86,11 @@ class StockDocument extends Model
 
     protected static function booted(): void
     {
-        static::creating(fn (StockDocument $doc) => \App\Services\StockDocumentService::initialize($doc));
+        static::creating(fn (StockDocument $doc) => StockDocumentService::initialize($doc));
     }
 
-    public function typeEnum(): \App\Enums\StockDocumentType
+    public function typeEnum(): StockDocumentType
     {
-        return \App\Enums\StockDocumentType::from($this->type);
+        return StockDocumentType::from($this->type);
     }
 }

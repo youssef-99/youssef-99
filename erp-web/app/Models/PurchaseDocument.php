@@ -2,9 +2,11 @@
 
 namespace App\Models;
 
+use App\Enums\PurchaseDocumentType;
+use App\Services\PurchaseDocumentService;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class PurchaseDocument extends Model
 {
@@ -100,11 +102,11 @@ class PurchaseDocument extends Model
 
     protected static function booted(): void
     {
-        static::creating(fn (PurchaseDocument $doc) => \App\Services\PurchaseDocumentService::initialize($doc));
+        static::creating(fn (PurchaseDocument $doc) => PurchaseDocumentService::initialize($doc));
     }
 
-    public function typeEnum(): \App\Enums\PurchaseDocumentType
+    public function typeEnum(): PurchaseDocumentType
     {
-        return \App\Enums\PurchaseDocumentType::from($this->type);
+        return PurchaseDocumentType::from($this->type);
     }
 }

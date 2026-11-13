@@ -2,9 +2,10 @@
 
 namespace App\Models;
 
+use App\Services\StockService;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class ItemBatch extends Model
 {
@@ -33,6 +34,6 @@ class ItemBatch extends Model
 
     public function balance(?int $warehouseId = null): float
     {
-        return \App\Services\StockService::balance($this->item_id, $warehouseId, $this->id);
+        return StockService::balance($this->item_id, $warehouseId, $this->id);
     }
 }

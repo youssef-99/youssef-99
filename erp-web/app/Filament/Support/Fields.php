@@ -102,7 +102,7 @@ class Fields
             ->all();
     }
 
-    public static function money(string $name, string $label = null): TextInput
+    public static function money(string $name, ?string $label = null): TextInput
     {
         return TextInput::make($name)
             ->label($label ?? str($name)->headline()->toString())
@@ -111,7 +111,7 @@ class Fields
             ->step(0.01);
     }
 
-    public static function percent(string $name, string $label = null): TextInput
+    public static function percent(string $name, ?string $label = null): TextInput
     {
         return TextInput::make($name)
             ->label($label ?? str($name)->headline()->toString())

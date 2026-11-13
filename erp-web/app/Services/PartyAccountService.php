@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Account;
+use App\Models\Branch;
 use App\Models\Customer;
 use App\Models\Supplier;
 use Illuminate\Database\Eloquent\Model;
@@ -70,7 +71,7 @@ class PartyAccountService
 
         $offset = Settings::accountOrFail('opening_balances');
         $amount = $debit - $credit;
-        $branchId ??= auth()->user()?->default_branch_id ?? \App\Models\Branch::query()->value('id');
+        $branchId ??= auth()->user()?->default_branch_id ?? Branch::query()->value('id');
         $date = $party->account_opening_date ?? now()->startOfYear();
 
         JournalService::record($party, 'opening', $branchId, $date, [
