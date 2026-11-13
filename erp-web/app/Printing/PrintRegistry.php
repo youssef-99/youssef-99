@@ -4,6 +4,7 @@ namespace App\Printing;
 
 use App\Printing\Templates\ChartOfAccountsPrint;
 use App\Printing\Templates\ChequeCollectionPrint;
+use App\Printing\Templates\FinancingContractPrint;
 use App\Printing\Templates\GoodsReceiptNotePrint;
 use App\Printing\Templates\JournalEntryPrint;
 use App\Printing\Templates\PurchaseDocumentPrint;
@@ -26,6 +27,7 @@ class PrintRegistry
         'journal' => JournalEntryPrint::class,
         'cheque-collection' => ChequeCollectionPrint::class,
         'chart-of-accounts' => ChartOfAccountsPrint::class,
+        'financing-contract' => FinancingContractPrint::class,
     ];
 
     public static function resolve(string $type): ?PrintTemplate

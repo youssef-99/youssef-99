@@ -4,6 +4,7 @@ namespace App\Printing;
 
 use App\Models\Account;
 use App\Models\ChequeCollection;
+use App\Models\FinancingContract;
 use App\Models\JournalEntry;
 use App\Models\PurchaseDocument;
 use App\Models\SalesDocument;
@@ -66,6 +67,7 @@ class PrintPermissions
         JournalEntry::class => ['*' => ['accounting.journal-vouchers']],
         ChequeCollection::class => ['*' => ['accounting.cheques-collection']],
         Account::class => ['*' => ['accounting.accounts']],
+        FinancingContract::class => ['*' => ['accounting.financing-contracts']],
     ];
 
     /**

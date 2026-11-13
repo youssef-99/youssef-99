@@ -6,6 +6,7 @@ use App\Models\Account;
 use App\Models\Branch;
 use App\Models\ChequeCollection;
 use App\Models\Customer;
+use App\Models\FinancingContract;
 use App\Models\Group;
 use App\Models\Item;
 use App\Models\JournalEntry;
@@ -16,6 +17,7 @@ use App\Models\User;
 use App\Models\Voucher;
 use App\Models\Warehouse;
 use App\Printing\AmountInWords;
+use App\Services\FinancingContractService;
 use App\Services\ManualJournalService;
 use App\Services\Settings;
 use App\Services\StockDocumentService;
@@ -211,6 +213,32 @@ class PrintControllerTest extends ErpTestCase
             ->assertSee('دليل الحسابات')
             ->assertSeeInOrder(['الأصول', 'الأصول المتداولة', 'النقدية والبنوك', 'الصندوق الرئيسي'])
             ->assertSee('padding-inline-start: 53px', false);
+    }
+
+    public function test_financing_contract_prints_the_installments_schedule(): void
+    {
+        $contract = FinancingContract::query()->create([
+            'branch_id' => Branch::query()->value('id'), 'contract_date' => '2026-01-15', 'first_installment_date' => '2026-02-15',
+            'murabaha_amount' => 12000, 'bank_profit_margin' => 5, 'installments_count' => 12,
+        ]);
+        FinancingContractService::recalculate($contract);
+        $contract->installments()->where('sequence', 1)->update(['is_paid' => true, 'paid_at' => '2026-02-15']);
+
+        $this->get(route('print', ['type' => 'financing-contract', 'id' => $contract->id]))
+            ->assertOk()
+            ->assertSee('عقد تمويل')
+            ->assertSee($contract->number)
+            ->assertSee('12,600.00')
+            ->assertSee('1,050.00')
+            ->assertSeeInOrder(['2026-02-15', 'مسدد', '2026-03-15', 'غير مسدد'])
+            ->assertSee('2027-01-15');
+
+        $group = Group::query()->create(['code' => 'F1', 'name_ar' => 'التمويل', 'permissions' => ['accounting.financing-contracts.view']]);
+        $user = User::factory()->create(['group_id' => $group->id]);
+        $this->actingAs($user)->get(route('print', ['type' => 'financing-contract', 'id' => $contract->id]))->assertOk();
+
+        $group->update(['permissions' => ['accounting.accounts.view']]);
+        $this->actingAs($user->fresh())->get(route('print', ['type' => 'financing-contract', 'id' => $contract->id]))->assertForbidden();
     }
 
     public function test_unknown_type_or_record_returns_404(): void
