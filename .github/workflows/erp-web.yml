@@ -1,0 +1,154 @@
+# Tests erp-web on every push and pull request, and deploys main to the Azure VM.
+# Deploy settings (README "Deploy: Azure VM + GitHub Actions"): variables AZURE_VM_HOST, AZURE_VM_USER and
+# DEPLOY_DOMAIN; secrets AZURE_VM_SSH_KEY and AZURE_VM_KNOWN_HOSTS. This repo is public, so its Actions logs
+# are public too: nothing here prints a secret.
+name: ERP Web
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "erp-web/**"
+      - ".github/workflows/erp-web.yml"
+  pull_request:
+    paths:
+      - "erp-web/**"
+      - ".github/workflows/erp-web.yml"
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: Deploy to production after the tests pass
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+        working-directory: erp-web
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: "8.3"
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, intl, bcmath, gd
+          coverage: none
+
+      - name: Locate the Composer cache
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Composer packages
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-${{ runner.os }}-${{ hashFiles('erp-web/composer.lock') }}
+          restore-keys: composer-${{ runner.os }}-
+
+      - name: Install Composer dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Prepare the environment file
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: Check code style
+        run: vendor/bin/pint --test
+
+      - name: Run tests
+        run: php artisan test --compact
+
+  deploy:
+    name: Deploy to the Azure VM
+    needs: test
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && inputs.deploy)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment:
+      name: production
+      url: https://${{ vars.DEPLOY_DOMAIN }}
+    concurrency:
+      group: erp-web-production
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: bash
+    env:
+      # Settings go through env vars, never straight into shell commands.
+      AZURE_VM_HOST: ${{ vars.AZURE_VM_HOST }}
+      AZURE_VM_USER: ${{ vars.AZURE_VM_USER }}
+      DEPLOY_DOMAIN: ${{ vars.DEPLOY_DOMAIN }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: "8.3"
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, intl, bcmath, gd
+          coverage: none
+
+      - name: Locate the Composer cache
+        id: composer-cache
+        working-directory: erp-web
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Composer packages
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-${{ runner.os }}-${{ hashFiles('erp-web/composer.lock') }}
+          restore-keys: composer-${{ runner.os }}-
+
+      - name: Configure SSH
+        env:
+          AZURE_VM_SSH_KEY: ${{ secrets.AZURE_VM_SSH_KEY }}
+          AZURE_VM_KNOWN_HOSTS: ${{ secrets.AZURE_VM_KNOWN_HOSTS }}
+        run: |
+          missing=""
+          for name in AZURE_VM_SSH_KEY AZURE_VM_KNOWN_HOSTS; do
+            [ -n "${!name}" ] || missing="$missing secrets.$name"
+          done
+          for name in AZURE_VM_HOST AZURE_VM_USER DEPLOY_DOMAIN; do
+            [ -n "${!name}" ] || missing="$missing vars.$name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error title=Deploy is not configured::Missing$missing. See 'Deploy: Azure VM + GitHub Actions' in erp-web/README.md."
+            exit 1
+          fi
+          # Only the public domain may appear in the (public) logs.
+          if [ "$AZURE_VM_HOST" != "$DEPLOY_DOMAIN" ]; then
+            echo "::add-mask::$AZURE_VM_HOST"
+          fi
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$AZURE_VM_SSH_KEY" | tr -d '\r' > ~/.ssh/erp_web_deploy
+          printf '%s\n' "$AZURE_VM_KNOWN_HOSTS" | tr -d '\r' > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/erp_web_deploy ~/.ssh/known_hosts
+
+      - name: Deploy
+        run: |
+          export SSH_OPTS="-i $HOME/.ssh/erp_web_deploy -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o ConnectTimeout=30 -o ServerAliveInterval=30"
+          erp-web/deploy/deploy.sh "$AZURE_VM_USER@$AZURE_VM_HOST" "$DEPLOY_DOMAIN"
+
+      - name: Remove the SSH key
+        if: always()
+        run: rm -f ~/.ssh/erp_web_deploy

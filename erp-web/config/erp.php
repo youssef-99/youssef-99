@@ -9,6 +9,10 @@ return [
     // Allow sales/transfers to take stock below zero.
     'allow_negative_stock' => env('ERP_ALLOW_NEGATIVE_STOCK', true),
 
+    // Password for the "admin" user created by SystemSeeder on a fresh install (required in production;
+    // deploy/activate-release.sh passes it from /etc/erp-web/initial-admin-password). Local installs default to "password".
+    'initial_admin_password' => env('ERP_ADMIN_PASSWORD'),
+
     'locales' => ['ar' => 'العربية', 'en' => 'English'],
 
     'currency' => 'SAR',

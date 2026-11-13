@@ -17,6 +17,7 @@ use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\Settings;
 use Illuminate\Database\Seeder;
+use RuntimeException;
 
 /**
  * Minimum data for a working system: company, branch, warehouse, fiscal year,
@@ -69,11 +70,13 @@ class SystemSeeder extends Seeder
 
         Group::query()->firstOrCreate(['code' => '1'], ['name_ar' => 'مدير النظام', 'name_en' => 'Administrators', 'permissions' => []]);
 
-        User::query()->firstOrCreate(['username' => 'admin'], [
+        // A closure so the password is only required when the admin user is actually created.
+        User::query()->firstOrCreate(['username' => 'admin'], fn (): array => [
             'code' => '1',
             'name' => 'مدير النظام',
             'email' => 'admin@example.com',
-            'password' => 'password',
+            'password' => config('erp.initial_admin_password')
+                ?: (app()->isProduction() ? throw new RuntimeException('Set ERP_ADMIN_PASSWORD to create the admin user in production.') : 'password'),
             'is_admin' => true,
             'group_id' => Group::query()->value('id'),
             'default_branch_id' => $branch->id,
