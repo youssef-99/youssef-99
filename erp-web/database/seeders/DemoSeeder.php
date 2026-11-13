@@ -31,6 +31,17 @@ use Illuminate\Database\Seeder;
  */
 class DemoSeeder extends Seeder
 {
+    /** Per-module demo data, owned by each module (run after the core demo data, while logged in as admin). */
+    public const MODULE_SEEDERS = [
+        'Database\\Seeders\\Demo\\GeneralDemoSeeder',
+        'Database\\Seeders\\Demo\\AccountingDemoSeeder',
+        'Database\\Seeders\\Demo\\InventoryDemoSeeder',
+        'Database\\Seeders\\Demo\\SalesDemoSeeder',
+        'Database\\Seeders\\Demo\\PosDemoSeeder',
+        'Database\\Seeders\\Demo\\PurchasesDemoSeeder',
+        'Database\\Seeders\\Demo\\CashDemoSeeder',
+    ];
+
     public function run(): void
     {
         if (Item::query()->exists()) {
@@ -140,6 +151,12 @@ class DemoSeeder extends Seeder
             SalesDocumentService::recalculate($pos);
             $pos->update(['cash_amount' => $pos->grand_total, 'amount_received' => ceil((float) $pos->grand_total)]);
             SalesDocumentService::post($pos);
+        }
+
+        foreach (self::MODULE_SEEDERS as $seeder) {
+            if (class_exists($seeder)) {
+                $this->call($seeder);
+            }
         }
 
         auth()->logout();
