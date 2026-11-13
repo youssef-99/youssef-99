@@ -80,6 +80,15 @@ class StockDocumentService
             throw new ErpException(__('Periodic stocktake records must be approved before posting.'));
         }
 
+        if ($type === StockDocumentType::OutboundTransfer) {
+            if (! $doc->to_warehouse_id) {
+                throw new ErpException(__('Select the destination warehouse.'));
+            }
+            if ((int) $doc->to_warehouse_id === (int) $doc->warehouse_id) {
+                throw new ErpException(__('The destination warehouse must differ from the source warehouse.'));
+            }
+        }
+
         return DB::transaction(function () use ($doc, $type) {
             static::recalculate($doc);
             if ($doc->lines->isEmpty()) {
@@ -136,6 +145,24 @@ class StockDocumentService
             }
 
             return $doc;
+        });
+    }
+
+    /**
+     * Approve a periodic stocktake record (اعتماد محضر الجرد الدوري) and, by default, post it.
+     */
+    public static function approve(StockDocument $doc, bool $post = true): StockDocument
+    {
+        if ($doc->type !== StockDocumentType::PeriodicStocktake->value) {
+            throw new ErpException(__('Only periodic stocktake records need approval.'));
+        }
+
+        return DB::transaction(function () use ($doc, $post) {
+            if (! $doc->is_approved) {
+                $doc->forceFill(['is_approved' => true, 'approved_at' => now()])->saveQuietly();
+            }
+
+            return $post && ! $doc->is_posted ? static::post($doc) : $doc;
         });
     }
 

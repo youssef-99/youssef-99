@@ -24,7 +24,7 @@ class StockService
             ->when($warehouseId, fn ($q) => $q->where('warehouse_id', $warehouseId))
             ->when($branchId, fn ($q) => $q->where('branch_id', $branchId))
             ->when($batchId, fn ($q) => $q->where('item_batch_id', $batchId))
-            ->when($upToDate, fn ($q) => $q->where('date', '<=', $upToDate))
+            ->when($upToDate, fn ($q) => $q->whereDate('date', '<=', $upToDate))
             ->sum(DB::raw('qty_in - qty_out')), 3);
     }
 
@@ -39,6 +39,22 @@ class StockService
             ->havingRaw('SUM(m.qty_in - m.qty_out) <> 0')
             ->orderBy('b.expiry_date')
             ->selectRaw('m.item_batch_id, b.batch_no, b.expiry_date, SUM(m.qty_in - m.qty_out) as balance')
+            ->get();
+    }
+
+    /**
+     * Balance per warehouse (non-zero only).
+     *
+     * @return Collection<int, object{warehouse_id:int, branch_id:int, balance:float}>
+     */
+    public static function warehouseBalances(int $itemId): Collection
+    {
+        return DB::table('stock_movements')
+            ->where('item_id', $itemId)
+            ->groupBy('warehouse_id', 'branch_id')
+            ->havingRaw('SUM(qty_in - qty_out) <> 0')
+            ->orderBy('warehouse_id')
+            ->selectRaw('warehouse_id, branch_id, SUM(qty_in - qty_out) as balance')
             ->get();
     }
 
@@ -110,6 +126,46 @@ class StockService
         $movement->save();
 
         return $movement;
+    }
+
+    /**
+     * Replay the item's ledger in date order and rebuild the moving weighted average cost,
+     * using the same rule as move(): incoming quantities with a cost re-average, outgoing
+     * quantities leave the average unchanged.
+     *
+     * The optional $visitor is called for every movement with the average cost in effect just
+     * before it; returning a float overrides that movement's unit cost (and is saved).
+     *
+     * @param  (\Closure(StockMovement, float): ?float)|null  $visitor
+     */
+    public static function replayAverageCost(int $itemId, ?\Closure $visitor = null): float
+    {
+        $onHand = 0.0;
+        $average = 0.0;
+
+        StockMovement::query()
+            ->where('item_id', $itemId)
+            ->orderBy('date')
+            ->orderBy('id')
+            ->each(function (StockMovement $movement) use (&$onHand, &$average, $visitor) {
+                $qty = (float) $movement->qty_in - (float) $movement->qty_out;
+
+                if ($visitor) {
+                    $override = $visitor($movement, round($average, 4));
+                    if ($override !== null && abs($override - (float) $movement->unit_cost) > 0.00001) {
+                        $movement->forceFill(['unit_cost' => round($override, 4)])->saveQuietly();
+                    }
+                }
+
+                $cost = (float) $movement->unit_cost;
+                if ($qty > 0 && $cost > 0) {
+                    $base = max(0.0, $onHand);
+                    $average = ($base + $qty) > 0 ? (($base * $average) + ($qty * $cost)) / ($base + $qty) : $cost;
+                }
+                $onHand += $qty;
+            });
+
+        return round($average, 4);
     }
 
     /** Current unit cost used for COGS. */

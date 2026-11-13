@@ -30,6 +30,16 @@ class Item extends Model
         ];
     }
 
+    /** ZATCA: an exemption reason only applies to 0% VAT items. */
+    protected static function booted(): void
+    {
+        static::saving(function (Item $item) {
+            if ((float) $item->vat_rate > 0) {
+                $item->tax_exemption_reason = null;
+            }
+        });
+    }
+
     public function unit(): BelongsTo
     {
         return $this->belongsTo(Unit::class, 'unit_id');
