@@ -15,8 +15,8 @@ trait HasPostedTabs
     {
         return [
             'all' => Tab::make(__('All')),
-            'posted' => Tab::make(__('Posted'))->modifyQueryUsing(fn (Builder $q) => $q->where('is_posted', true)),
-            'unposted' => Tab::make(__('Unposted'))->modifyQueryUsing(fn (Builder $q) => $q->where('is_posted', false)),
+            'posted' => Tab::make(__('Posted'))->modifyQueryUsing(fn (Builder $query) => $query->where('is_posted', true)),
+            'unposted' => Tab::make(__('Unposted'))->modifyQueryUsing(fn (Builder $query) => $query->where('is_posted', false)),
         ];
     }
 }

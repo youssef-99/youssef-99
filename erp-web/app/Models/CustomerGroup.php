@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\Concerns\HasBilingualName;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class CustomerGroup extends Model
 {
@@ -17,5 +18,10 @@ class CustomerGroup extends Model
     {
         return [
         ];
+    }
+
+    public function customers(): HasMany
+    {
+        return $this->hasMany(Customer::class, 'customer_group_id');
     }
 }

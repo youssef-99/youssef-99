@@ -38,6 +38,7 @@ class SalesDocument extends Model
             'points_redeemed' => 'decimal:2',
             'is_posted' => 'boolean',
             'posted_at' => 'datetime',
+            'approved_at' => 'datetime',
             'zatca_submitted_at' => 'datetime',
         ];
     }
@@ -110,6 +111,23 @@ class SalesDocument extends Model
     public function lines(): HasMany
     {
         return $this->hasMany(SalesDocumentLine::class, 'sales_document_id')->orderBy('id');
+    }
+
+    /** The quotation / customer order this document was converted from. */
+    public function sourceDocument(): BelongsTo
+    {
+        return $this->belongsTo(SalesDocument::class, 'source_document_id');
+    }
+
+    /** Documents (invoices) created from this quotation / customer order. */
+    public function convertedDocuments(): HasMany
+    {
+        return $this->hasMany(SalesDocument::class, 'source_document_id');
+    }
+
+    public function approver(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'approved_by');
     }
 
     public function returns(): HasMany

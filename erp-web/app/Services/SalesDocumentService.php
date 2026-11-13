@@ -84,7 +84,11 @@ class SalesDocumentService
         }
 
         if (! $type->isPostable()) {
-            $doc->update(['status' => 'confirmed']);
+            // Quotations are confirmed and customer orders are submitted for approval: no stock or journal.
+            if ($doc->lines()->doesntExist()) {
+                throw new ErpException(__('The document has no items.'));
+            }
+            $doc->forceFill(['is_posted' => true, 'posted_at' => now(), 'status' => 'confirmed'])->save();
 
             return $doc;
         }
@@ -95,6 +99,10 @@ class SalesDocumentService
 
             if ($doc->lines->isEmpty()) {
                 throw new ErpException(__('The document has no items.'));
+            }
+
+            if ($type->isReturn() && $doc->original_document_id) {
+                static::assertReturnable($doc);
             }
 
             $warehouseId = $doc->warehouse_id ?? throw new ErpException(__('Select a warehouse.'));
@@ -150,7 +158,19 @@ class SalesDocumentService
             throw new ErpException(__('This invoice was reported to ZATCA. Issue a return or credit note instead.'));
         }
 
+        if ($doc->convertedDocuments()->exists()) {
+            throw new ErpException(__('This document was converted to a sales invoice. Delete the invoice first.'));
+        }
+
+        if ($doc->returns()->where('is_posted', true)->exists()) {
+            throw new ErpException(__('This invoice has posted returns. Unpost the returns first.'));
+        }
+
         return DB::transaction(function () use ($doc) {
+            if ($doc->type === SalesDocumentType::CustomerOrder->value) {
+                $doc->lines()->update(['approved_qty' => null]);
+                $doc->forceFill(['rejection_reason' => null, 'approved_by' => null, 'approved_at' => null]);
+            }
             StockService::removeFor($doc);
             JournalService::removeFor($doc);
             PointsTransaction::query()->where('sales_document_id', $doc->id)->get()->each(function (PointsTransaction $t) {
@@ -160,6 +180,145 @@ class SalesDocumentService
             $doc->forceFill(['is_posted' => false, 'posted_at' => null, 'journal_entry_id' => null, 'status' => 'draft', 'points_earned' => 0])->saveQuietly();
 
             return $doc;
+        });
+    }
+
+    /**
+     * Quantity still returnable per item of an original invoice: sold quantity minus the quantities
+     * of its posted returns (optionally ignoring one return, e.g. the one being edited).
+     *
+     * @return array<int, array{sold: float, returned: float, available: float}> keyed by item id
+     */
+    public static function returnableQuantities(SalesDocument $original, ?int $exceptReturnId = null): array
+    {
+        $result = [];
+        foreach ($original->lines()->get() as $line) {
+            $result[$line->item_id] ??= ['sold' => 0.0, 'returned' => 0.0, 'available' => 0.0];
+            $result[$line->item_id]['sold'] += (float) $line->quantity;
+        }
+
+        $returned = SalesDocument::query()
+            ->where('original_document_id', $original->id)
+            ->where('is_posted', true)
+            ->when($exceptReturnId, fn ($q, $id) => $q->whereKeyNot($id))
+            ->join('sales_document_lines', 'sales_document_lines.sales_document_id', '=', 'sales_documents.id')
+            ->groupBy('sales_document_lines.item_id')
+            ->selectRaw('sales_document_lines.item_id as item_id, SUM(sales_document_lines.quantity) as qty')
+            ->pluck('qty', 'item_id');
+
+        foreach ($result as $itemId => $row) {
+            $result[$itemId]['returned'] = round((float) ($returned[$itemId] ?? 0), 3);
+            $result[$itemId]['available'] = round(max(0, $row['sold'] - $result[$itemId]['returned']), 3);
+        }
+
+        return $result;
+    }
+
+    /**
+     * A return may only contain items of its original invoice, and the returned quantity of each item
+     * cannot exceed the sold quantity minus earlier returns.
+     */
+    public static function assertReturnable(SalesDocument $return): void
+    {
+        $original = $return->originalDocument ?? throw new ErpException(__('Select the original invoice.'));
+
+        if (! $original->is_posted) {
+            throw new ErpException(__('The original invoice is not posted.'));
+        }
+
+        $returnable = static::returnableQuantities($original, $return->id);
+        $requested = [];
+        foreach ($return->lines()->with('item')->get() as $line) {
+            $requested[$line->item_id] ??= ['qty' => 0.0, 'item' => $line->item];
+            $requested[$line->item_id]['qty'] += (float) $line->quantity;
+        }
+
+        foreach ($requested as $itemId => $row) {
+            $label = $row['item']?->label ?? (string) $itemId;
+            if (! isset($returnable[$itemId])) {
+                throw new ErpException(__('Item :item is not on the original invoice.', ['item' => $label]));
+            }
+            if ($row['qty'] > $returnable[$itemId]['available'] + 0.0005) {
+                throw new ErpException(__('Returned quantity of :item (:qty) exceeds the sold quantity minus earlier returns (:available).', [
+                    'item' => $label,
+                    'qty' => (float) $row['qty'],
+                    'available' => $returnable[$itemId]['available'],
+                ]));
+            }
+        }
+    }
+
+    /**
+     * Copy a quotation or an approved customer order into a new draft sales invoice
+     * (customer orders use the approved quantities).
+     */
+    public static function convertToInvoice(SalesDocument $source): SalesDocument
+    {
+        $type = SalesDocumentType::from($source->type);
+
+        if (! in_array($type, [SalesDocumentType::Quotation, SalesDocumentType::CustomerOrder], true)) {
+            throw new ErpException(__('Only quotations and customer orders can be converted to an invoice.'));
+        }
+
+        if ($type === SalesDocumentType::CustomerOrder && ! in_array($source->status, ['approved', 'partially_approved'], true)) {
+            throw new ErpException(__('Approve the customer order before converting it to an invoice.'));
+        }
+
+        if ($source->status === 'rejected') {
+            throw new ErpException(__('A rejected document cannot be converted.'));
+        }
+
+        if ($source->convertedDocuments()->exists()) {
+            throw new ErpException(__('This document was already converted to a sales invoice.'));
+        }
+
+        return DB::transaction(function () use ($source, $type) {
+            $source->loadMissing('lines', 'customer');
+            $date = now()->startOfDay();
+            $paymentTerm = (int) ($source->customer?->payment_term_days ?? 0);
+
+            $invoice = SalesDocument::query()->create([
+                'type' => SalesDocumentType::SalesInvoice->value,
+                'branch_id' => $source->branch_id,
+                'warehouse_id' => $source->warehouse_id,
+                'date' => $date,
+                'due_date' => $paymentTerm > 0 ? $date->copy()->addDays($paymentTerm) : $source->due_date,
+                'customer_id' => $source->customer_id,
+                'account_id' => $source->account_id ?: $source->customer?->account_id,
+                'salesman_id' => $source->salesman_id,
+                'sales_policy_id' => $source->sales_policy_id,
+                'payment_method' => $source->payment_method ?: 'credit',
+                'manual_no' => $source->manual_no,
+                'notes' => $source->notes,
+                'additional_discount_percent' => $source->additional_discount_percent,
+                'additional_discount' => (float) $source->additional_discount_percent > 0 ? 0 : $source->additional_discount,
+                'source_document_id' => $source->id,
+            ]);
+
+            $copied = 0;
+            foreach ($source->lines as $line) {
+                $quantity = $type === SalesDocumentType::CustomerOrder ? (float) $line->approved_qty : (float) $line->quantity;
+                if ($quantity <= 0) {
+                    continue;
+                }
+                $invoice->lines()->create([
+                    'item_id' => $line->item_id,
+                    'unit_id' => $line->unit_id,
+                    'item_batch_id' => $line->item_batch_id,
+                    'quantity' => $quantity,
+                    'free_qty' => $line->free_qty,
+                    'unit_price' => $line->unit_price,
+                    'discount_percent' => $line->discount_percent,
+                    'tax_percent' => $line->tax_percent,
+                ]);
+                $copied++;
+            }
+
+            if ($copied === 0) {
+                throw new ErpException(__('The document has no items.'));
+            }
+
+            return static::recalculate($invoice->refresh());
         });
     }
 

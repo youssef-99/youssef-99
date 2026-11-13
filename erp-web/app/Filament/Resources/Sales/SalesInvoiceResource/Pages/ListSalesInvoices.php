@@ -23,8 +23,8 @@ class ListSalesInvoices extends ListRecords
     {
         return [
             'all' => Tab::make(__('All')),
-            'confirmed' => Tab::make(__('Confirmed'))->modifyQueryUsing(fn (Builder $q) => $q->where('is_posted', true)),
-            'unconfirmed' => Tab::make(__('Unconfirmed'))->modifyQueryUsing(fn (Builder $q) => $q->where('is_posted', false)),
+            'confirmed' => Tab::make(__('Confirmed'))->modifyQueryUsing(fn (Builder $query) => $query->where('is_posted', true)),
+            'unconfirmed' => Tab::make(__('Unconfirmed'))->modifyQueryUsing(fn (Builder $query) => $query->where('is_posted', false)),
         ];
     }
 

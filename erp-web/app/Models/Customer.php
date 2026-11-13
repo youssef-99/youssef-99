@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Models\Concerns\HasBilingualName;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Customer extends Model
 {
@@ -26,6 +27,7 @@ class Customer extends Model
             'opening_credit' => 'decimal:2',
             'credit_limit' => 'decimal:2',
             'attachments' => 'array',
+            'attachment_names' => 'array',
             'is_active' => 'boolean',
         ];
     }
@@ -88,5 +90,10 @@ class Customer extends Model
     public function salesDocuments(): HasMany
     {
         return $this->hasMany(SalesDocument::class, 'customer_id');
+    }
+
+    public function salesPolicies(): HasMany
+    {
+        return $this->hasMany(SalesPolicy::class, 'customer_id');
     }
 }
