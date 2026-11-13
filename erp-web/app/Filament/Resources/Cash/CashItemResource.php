@@ -10,6 +10,7 @@ use App\Filament\Support\Fields;
 use App\Filament\Support\Filters;
 use App\Models\Item;
 use App\Models\Unit;
+use App\Services\Settings;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\Select;
@@ -61,7 +62,7 @@ class CashItemResource extends ErpResource
             Fields::relation('category_id', 'category', 'Item Category')->required(),
             Fields::relation('unit_id', 'unit', 'Unit')->default(fn () => Unit::query()->value('id')),
             Select::make('item_type')->label('Item Type')->options(static::itemTypes())->default('standard')->required(),
-            Fields::percent('vat_rate', 'Tax %')->default(config('erp.default_vat_rate')),
+            Fields::percent('vat_rate', 'Tax %')->default(fn (): float => Settings::defaultVatRate()),
             Fields::money('purchase_price', 'Purchase Price')->minValue(0),
             Fields::money('sale_price', 'Selling Price')->minValue(0),
             Fields::active(),

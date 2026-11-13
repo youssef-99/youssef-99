@@ -59,7 +59,7 @@ class ItemImportService
                     continue;
                 }
 
-                $vat = filled($row['vat_rate']) ? (float) $row['vat_rate'] : (float) config('erp.default_vat_rate', 15);
+                $vat = filled($row['vat_rate']) ? (float) $row['vat_rate'] : Settings::defaultVatRate();
                 $attributes = array_filter([
                     'barcode' => $row['barcode'],
                     'name_ar' => $row['name_ar'],

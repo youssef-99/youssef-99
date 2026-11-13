@@ -96,7 +96,7 @@ class ZatcaNoteService
                 'unit_id' => $source?->unit_id,
                 'quantity' => (float) $line['quantity'],
                 'unit_price' => (float) ($line['unit_price'] ?? 0),
-                'tax_percent' => (float) ($line['tax_percent'] ?? $source?->tax_percent ?? config('erp.default_vat_rate')),
+                'tax_percent' => (float) ($line['tax_percent'] ?? $source?->tax_percent ?? Settings::defaultVatRate()),
             ];
         }
 

@@ -52,6 +52,12 @@ class Settings
         Cache::forget('erp.settings');
     }
 
+    /** Default VAT % for new items and lines (System Settings, falling back to config). */
+    public static function defaultVatRate(): float
+    {
+        return (float) static::get('vat.default_rate', config('erp.default_vat_rate', 15));
+    }
+
     public static function account(string $key): ?int
     {
         $id = static::get("accounts.{$key}");

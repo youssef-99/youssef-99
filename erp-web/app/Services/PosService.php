@@ -6,7 +6,6 @@ use App\Enums\SalesDocumentType;
 use App\Exceptions\ErpException;
 use App\Models\SalesDocument;
 use App\Models\SalesDocumentLine;
-use App\Services\Zatca\ZatcaService;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -79,12 +78,12 @@ class PosService
             if (! $isReturn) {
                 LoyaltyPointsService::redeem($doc);
             }
-            LoyaltyPointsService::earn($doc);
 
             return $doc->refresh();
         });
 
-        return ZatcaService::enabled() && $doc->zatca_xml ? app(ZatcaService::class)->afterPost($doc) : $doc;
+        // SalesDocumentService::post() earns loyalty points and submits to ZATCA (on_post mode).
+        return $doc;
     }
 
     public static function unpost(SalesDocument $doc): SalesDocument
@@ -96,7 +95,6 @@ class PosService
 
         return DB::transaction(function () use ($doc) {
             SalesDocumentService::unpost($doc);
-            LoyaltyPointsService::reverse($doc);
 
             return $doc->refresh();
         });

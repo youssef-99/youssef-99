@@ -5,6 +5,7 @@ namespace App\Filament\Resources\Purchases\Shared;
 use App\Filament\Support\DocumentLines;
 use App\Models\Item;
 use App\Services\Calc\DocumentCalculator;
+use App\Services\Settings;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Repeater;
@@ -59,7 +60,7 @@ class PurchaseLines
             TextInput::make('discount2')->label('Discount 2')->numeric()->readOnly(),
             static::calcInput('bonus_qty', 'Bonus')->default(0)->minValue(0),
             static::calcInput('bonus_percent', 'Bonus %')->default(0)->minValue(0)->maxValue(100),
-            static::calcInput('tax_percent', 'Tax %')->default(config('erp.default_vat_rate')),
+            static::calcInput('tax_percent', 'Tax %')->default(fn (): float => Settings::defaultVatRate()),
             TextInput::make('tax')->label('Tax')->numeric()->readOnly(),
         ];
 

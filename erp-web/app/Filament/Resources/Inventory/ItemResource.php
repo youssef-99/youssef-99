@@ -13,6 +13,7 @@ use App\Filament\Support\Columns;
 use App\Filament\Support\Fields;
 use App\Filament\Support\Filters;
 use App\Models\Item;
+use App\Services\Settings;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
 use Filament\Actions\DeleteAction;
@@ -70,7 +71,7 @@ class ItemResource extends ErpResource
                 Fields::relation('unit_id', 'unit', 'Unit'),
             ]),
             Section::make(__('Tax and Prices'))->columns(['default' => 1, 'md' => 3])->schema([
-                Fields::percent('vat_rate', 'VAT %')->default(config('erp.default_vat_rate'))->required()->live(onBlur: true),
+                Fields::percent('vat_rate', 'VAT %')->default(fn (): float => Settings::defaultVatRate())->required()->live(onBlur: true),
                 Select::make('tax_exemption_reason')->label('Tax Exemption Reason')
                     ->options(TaxExemptionReason::options())
                     ->searchable()

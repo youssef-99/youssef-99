@@ -6,6 +6,7 @@ use App\Models\Item;
 use App\Models\ItemBatch;
 use App\Models\SalesPolicy;
 use App\Services\Calc\DocumentCalculator;
+use App\Services\Settings;
 use App\Services\StockService;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Hidden;
@@ -150,7 +151,7 @@ class DocumentLines
                 ->afterStateHydrated(fn (TextInput $c, Get $get) => $c->state($get('item_id') ? StockService::balance((int) $get('item_id'), $get('../../warehouse_id')) : null)),
             static::calcInput('unit_price', 'Unit Price')->required(),
             static::calcInput('discount_percent', 'Discount %')->default(0)->maxValue(100),
-            static::calcInput('tax_percent', 'Tax %')->default(config('erp.default_vat_rate')),
+            static::calcInput('tax_percent', 'Tax %')->default(fn (): float => Settings::defaultVatRate()),
             TextInput::make('tax')->label('Tax')->numeric()->readOnly(),
             TextInput::make('net')->label('Item Net')->numeric()->readOnly(),
             Hidden::make('gross'),
@@ -185,7 +186,7 @@ class DocumentLines
             static::calcInput('discount_percent', 'Discount %')->default(0)->maxValue(100),
             static::calcInput('discount2_percent', 'Discount 2 %')->default(0)->maxValue(100),
             static::calcInput('bonus_qty', 'Bonus')->default(0),
-            static::calcInput('tax_percent', 'Tax %')->default(config('erp.default_vat_rate')),
+            static::calcInput('tax_percent', 'Tax %')->default(fn (): float => Settings::defaultVatRate()),
             TextInput::make('tax')->label('Tax')->numeric()->readOnly(),
             TextInput::make('net')->label('Item Net')->numeric()->readOnly(),
             Hidden::make('gross'),

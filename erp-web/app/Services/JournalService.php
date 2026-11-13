@@ -191,10 +191,14 @@ class JournalService
             ->where('e.is_posted', true)
             ->when($branchId, fn ($q) => $q->where('e.branch_id', $branchId));
 
-        $opening = $from ? (float) $base()->where('e.date', '<', $from)->sum(DB::raw('l.debit - l.credit')) : 0.0;
+        // Compare on day boundaries: date columns may hold "Y-m-d 00:00:00" (SQLite), so "<= Y-m-d" would drop the last day.
+        $fromDay = $from ? Carbon::parse($from)->toDateString() : null;
+        $toNextDay = $to ? Carbon::parse($to)->addDay()->toDateString() : null;
+
+        $opening = $fromDay ? (float) $base()->where('e.date', '<', $fromDay)->sum(DB::raw('l.debit - l.credit')) : 0.0;
         $period = $base()
-            ->when($from, fn ($q) => $q->where('e.date', '>=', $from))
-            ->when($to, fn ($q) => $q->where('e.date', '<=', $to))
+            ->when($fromDay, fn ($q) => $q->where('e.date', '>=', $fromDay))
+            ->when($toNextDay, fn ($q) => $q->where('e.date', '<', $toNextDay))
             ->selectRaw('COALESCE(SUM(l.debit),0) as d, COALESCE(SUM(l.credit),0) as c')
             ->first();
 

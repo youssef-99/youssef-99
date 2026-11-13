@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Sales;
 
+use App\Enums\SalesDocumentType;
 use App\Exceptions\ErpException;
 use App\Filament\Resources\Sales\SalesReturnResource\Pages\CreateSalesReturn;
 use App\Models\SalesDocument;
@@ -86,6 +87,26 @@ class SalesReturnTest extends ErpTestCase
         $return->lines()->update(['quantity' => 8]);
         SalesDocumentService::post($return->refresh());
         $this->assertTrue($return->refresh()->is_posted);
+    }
+
+    public function test_credit_notes_on_the_invoice_do_not_reduce_the_returnable_quantity(): void
+    {
+        $note = SalesDocument::query()->create([
+            'type' => SalesDocumentType::CreditNote->value, 'branch_id' => $this->invoice->branch_id, 'date' => now(),
+            'customer_id' => $this->invoice->customer_id, 'original_document_id' => $this->invoice->id,
+        ]);
+        $note->lines()->create($this->originalLine() + ['quantity' => 8]);
+        $note->forceFill(['is_posted' => true])->saveQuietly();
+
+        $itemId = $this->originalLine()['item_id'];
+        $this->assertEquals(8, SalesDocumentService::returnableQuantities($this->invoice)[$itemId]['available']);
+
+        $this->assertTrue(SalesDocumentType::CreditNote->isReturn());
+        $this->assertFalse(SalesDocumentType::DebitNote->isReturn());
+        $this->assertSame(0, SalesDocumentType::CreditNote->stockDirection());
+        $this->assertSame(0, SalesDocumentType::DebitNote->stockDirection());
+        $this->assertTrue(SalesDocumentType::DebitNote->isPostable());
+        $this->assertTrue(SalesDocumentType::CreditNote->isZatca());
     }
 
     public function test_an_invoice_with_posted_returns_cannot_be_unposted(): void

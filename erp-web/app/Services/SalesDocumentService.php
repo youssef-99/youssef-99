@@ -5,10 +5,10 @@ namespace App\Services;
 use App\Enums\SalesDocumentType;
 use App\Exceptions\ErpException;
 use App\Models\Item;
-use App\Models\PointsTransaction;
 use App\Models\SalesDocument;
 use App\Models\Warehouse;
 use App\Services\Calc\DocumentCalculator;
+use App\Services\Zatca\ZatcaNoteService;
 use App\Services\Zatca\ZatcaService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -63,11 +63,10 @@ class SalesDocumentService
             'grand_total' => $totals['grand_total'],
         ]);
 
-        if (SalesDocumentType::from($doc->type)->isPos()) {
-            $paid = (float) $doc->cash_amount + (float) $doc->card_amount;
-            $doc->amount_received = $doc->amount_received > 0 ? $doc->amount_received : $paid;
-            $doc->change_due = max(0, round((float) $doc->amount_received - (float) $doc->grand_total, 2));
-            $doc->is_paid = $paid + 0.009 >= (float) $doc->grand_total || (float) $doc->amount_received + 0.009 >= (float) $doc->grand_total;
+        if (SalesDocumentType::tryFrom((string) $doc->type)?->isPos()) {
+            $payment = PosService::payment((float) $doc->grand_total, (float) $doc->cash_amount, (float) $doc->card_amount, (float) $doc->amount_received);
+            $doc->change_due = $payment['change_due'];
+            $doc->is_paid = $payment['is_paid'];
         }
 
         $doc->saveQuietly();
@@ -83,6 +82,10 @@ class SalesDocumentService
             throw new ErpException(__('This document is already posted.'));
         }
 
+        if ($type->isNote()) {
+            return ZatcaNoteService::post($doc);
+        }
+
         if (! $type->isPostable()) {
             // Quotations are confirmed and customer orders are submitted for approval: no stock or journal.
             if ($doc->lines()->doesntExist()) {
@@ -93,7 +96,7 @@ class SalesDocumentService
             return $doc;
         }
 
-        return DB::transaction(function () use ($doc, $type) {
+        $doc = DB::transaction(function () use ($doc, $type) {
             static::recalculate($doc);
             $doc->load('lines.item.category', 'customer', 'originalDocument.lines');
 
@@ -101,7 +104,7 @@ class SalesDocumentService
                 throw new ErpException(__('The document has no items.'));
             }
 
-            if ($type->isReturn() && $doc->original_document_id) {
+            if ($type->isReturn() && ! $type->isNote() && $doc->original_document_id) {
                 static::assertReturnable($doc);
             }
 
@@ -125,11 +128,13 @@ class SalesDocumentService
                 $line->saveQuietly();
                 $costTotal += $qty * $unitCost;
 
-                StockService::move(
-                    $doc, $type->value, $item, $doc->branch_id, $warehouseId, $doc->date,
-                    $direction * $qty, $unitCost, $line->item_batch_id,
-                    allowNegative: (bool) config('erp.allow_negative_stock', true),
-                );
+                if ($direction !== 0) {
+                    StockService::move(
+                        $doc, $type->value, $item, $doc->branch_id, $warehouseId, $doc->date,
+                        $direction * $qty, $unitCost, $line->item_batch_id,
+                        allowNegative: (bool) config('erp.allow_negative_stock', true),
+                    );
+                }
             }
 
             $doc->cost_total = round($costTotal, 2);
@@ -142,18 +147,26 @@ class SalesDocumentService
                 'journal_entry_id' => $entry->id,
             ])->saveQuietly();
 
-            static::applyLoyalty($doc, $type);
+            if ($type->isPos()) {
+                LoyaltyPointsService::earn($doc);
+            }
 
-            if ($type->isZatca() && config('erp.zatca.enabled', true)) {
+            if ($type->isZatca() && ZatcaService::enabled()) {
                 app(ZatcaService::class)->prepare($doc);
             }
 
             return $doc->refresh();
         });
+
+        return ZatcaService::enabled() ? app(ZatcaService::class)->afterPost($doc) : $doc;
     }
 
     public static function unpost(SalesDocument $doc): SalesDocument
     {
+        if (SalesDocumentType::tryFrom((string) $doc->type)?->isNote()) {
+            return ZatcaNoteService::unpost($doc);
+        }
+
         if (in_array($doc->zatca_status, ['reported', 'cleared'], true)) {
             throw new ErpException(__('This invoice was reported to ZATCA. Issue a return or credit note instead.'));
         }
@@ -173,10 +186,7 @@ class SalesDocumentService
             }
             StockService::removeFor($doc);
             JournalService::removeFor($doc);
-            PointsTransaction::query()->where('sales_document_id', $doc->id)->get()->each(function (PointsTransaction $t) {
-                $t->pointsCustomer?->decrement('points_balance', (float) $t->points);
-                $t->delete();
-            });
+            LoyaltyPointsService::reverse($doc);
             $doc->forceFill(['is_posted' => false, 'posted_at' => null, 'journal_entry_id' => null, 'status' => 'draft', 'points_earned' => 0])->saveQuietly();
 
             return $doc;
@@ -197,8 +207,11 @@ class SalesDocumentService
             $result[$line->item_id]['sold'] += (float) $line->quantity;
         }
 
+        $returnType = SalesDocumentType::tryFrom((string) $original->type)?->returnType();
+
         $returned = SalesDocument::query()
             ->where('original_document_id', $original->id)
+            ->where('sales_documents.type', $returnType?->value ?? '')
             ->where('is_posted', true)
             ->when($exceptReturnId, fn ($q, $id) => $q->whereKeyNot($id))
             ->join('sales_document_lines', 'sales_document_lines.sales_document_id', '=', 'sales_documents.id')
@@ -384,30 +397,5 @@ class SalesDocumentService
             'description' => $description,
             'salesman_id' => $salesmanId,
         ];
-    }
-
-    protected static function applyLoyalty(SalesDocument $doc, SalesDocumentType $type): void
-    {
-        if (! $doc->points_customer_id || ! $type->isPos()) {
-            return;
-        }
-
-        $points = 0.0;
-        foreach ($doc->lines as $line) {
-            $points += (float) $line->net * (float) ($line->item?->category?->points_percent ?? 0) / 100;
-        }
-        $points = round($type->isReturn() ? -$points : $points, 2);
-
-        if ($points != 0.0) {
-            PointsTransaction::query()->create([
-                'points_customer_id' => $doc->points_customer_id,
-                'sales_document_id' => $doc->id,
-                'date' => $doc->date,
-                'points' => $points,
-                'description' => $type->label().' #'.$doc->number,
-            ]);
-            $doc->pointsCustomer()->increment('points_balance', $points);
-            $doc->forceFill(['points_earned' => $points])->saveQuietly();
-        }
     }
 }

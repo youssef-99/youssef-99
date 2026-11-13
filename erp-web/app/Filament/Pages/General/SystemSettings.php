@@ -65,6 +65,7 @@ class SystemSettings extends Page
             'zatca.environment' => config('erp.zatca.environment', 'sandbox'),
             'zatca.submission_mode' => config('erp.zatca.submission_mode', 'on_post'),
             'zatca.auto_resubmit' => true,
+            'pos.point_value' => 0.1,
         ];
     }
 
@@ -123,6 +124,13 @@ class SystemSettings extends Page
                                     ->required(),
                                 Toggle::make('vat.prices_include_tax')
                                     ->label('Selling prices include VAT?'),
+                                TextInput::make('pos.point_value')
+                                    ->label('Loyalty Point Value (SAR)')
+                                    ->helperText(__('Discount given for each redeemed loyalty point at the point of sale.'))
+                                    ->numeric()
+                                    ->minValue(0)
+                                    ->step(0.01)
+                                    ->required(),
                             ]),
                         Tab::make(__('ZATCA E-Invoicing'))
                             ->icon('heroicon-o-qr-code')

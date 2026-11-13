@@ -11,6 +11,7 @@ use App\Services\Calc\DocumentCalculator;
 use App\Services\LoyaltyPointsService;
 use App\Services\PosService;
 use App\Services\PromotionService;
+use App\Services\Settings;
 use App\Services\StockService;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Repeater;
@@ -224,7 +225,7 @@ class PosLines
             TextInput::make('gross')->label('Gross Price')->numeric()->readOnly(),
             $readOnly('unit_price_incl_tax', 'Unit Price incl. Tax'),
             TextInput::make('tax')->label('Tax')->numeric()->readOnly(),
-            static::calcInput('tax_percent', 'Tax %')->default(config('erp.default_vat_rate')),
+            static::calcInput('tax_percent', 'Tax %')->default(fn (): float => Settings::defaultVatRate()),
             TextInput::make('net')->label('Item Net')->numeric()->readOnly(),
             DocumentLines::batchSelect(),
         ];
