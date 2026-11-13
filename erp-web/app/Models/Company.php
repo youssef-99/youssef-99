@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\Concerns\HasBilingualName;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Company extends Model
 {

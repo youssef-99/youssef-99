@@ -20,4 +20,16 @@ class Currency extends Model
             'is_default' => 'boolean',
         ];
     }
+
+    /**
+     * Only one currency can be the default (local) currency.
+     */
+    protected static function booted(): void
+    {
+        static::saved(function (Currency $currency): void {
+            if ($currency->is_default) {
+                static::query()->whereKeyNot($currency->getKey())->where('is_default', true)->update(['is_default' => false]);
+            }
+        });
+    }
 }

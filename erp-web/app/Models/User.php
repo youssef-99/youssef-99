@@ -42,9 +42,10 @@ class User extends Authenticatable implements FilamentUser, HasName
         return $this->belongsTo(Branch::class, 'default_branch_id');
     }
 
+    /** Inactive users cannot log in. A freshly created model without the attribute uses the column default (active). */
     public function canAccessPanel(Panel $panel): bool
     {
-        return $this->is_active;
+        return (bool) ($this->is_active ?? true);
     }
 
     public function getFilamentName(): string

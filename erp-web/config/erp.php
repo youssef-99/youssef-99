@@ -15,7 +15,10 @@ return [
 
     'default_vat_rate' => 15,
 
+    // Defaults for the ZATCA settings on General > System Settings (the settings table overrides them).
     'zatca' => [
         'enabled' => env('ZATCA_ENABLED', true),
+        'environment' => env('ZATCA_ENVIRONMENT', 'sandbox'),
+        'submission_mode' => env('ZATCA_SUBMISSION_MODE', 'on_post'),
     ],
 ];

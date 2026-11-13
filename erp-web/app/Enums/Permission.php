@@ -13,6 +13,9 @@ enum Permission: string
     case Edit = 'edit';
     case Delete = 'delete';
     case Post = 'post';
+    case Approve = 'approve';
+    case Print = 'print';
+    case Export = 'export';
 
     public function label(): string
     {
@@ -22,6 +25,9 @@ enum Permission: string
             self::Edit => __('Edit'),
             self::Delete => __('Delete'),
             self::Post => __('Post'),
+            self::Approve => __('Approve'),
+            self::Print => __('Print'),
+            self::Export => __('Export'),
         };
     }
 
@@ -34,6 +40,9 @@ enum Permission: string
             'update', 'reorder' => self::Edit,
             'delete', 'deleteAny', 'forceDelete', 'forceDeleteAny', 'restore', 'restoreAny' => self::Delete,
             'post' => self::Post,
+            'approve' => self::Approve,
+            'print' => self::Print,
+            'export' => self::Export,
             default => self::View,
         };
     }
