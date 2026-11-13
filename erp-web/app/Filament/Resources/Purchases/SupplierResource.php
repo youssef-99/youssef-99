@@ -167,8 +167,8 @@ class SupplierResource extends ErpResource
     {
         return [
             'index' => Pages\ListSuppliers::route('/'),
-            'create' => Pages\CreateSupplier::route('/create'),
-            'view' => Pages\ViewSupplier::route('/{record}'),
+            'create' => Pages\CreateSupplier::route('/add'),
+            'view' => Pages\ViewSupplier::route('/{record}/view'),
             'edit' => Pages\EditSupplier::route('/{record}/edit'),
         ];
     }

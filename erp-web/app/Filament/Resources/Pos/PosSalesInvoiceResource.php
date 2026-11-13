@@ -56,8 +56,8 @@ class PosSalesInvoiceResource extends ErpResource
     {
         return [
             'index' => Pages\ListPosSalesInvoices::route('/'),
-            'create' => Pages\CreatePosSalesInvoice::route('/create'),
-            'view' => Pages\ViewPosSalesInvoice::route('/{record}'),
+            'create' => Pages\CreatePosSalesInvoice::route('/add'),
+            'view' => Pages\ViewPosSalesInvoice::route('/{record}/view'),
             'edit' => Pages\EditPosSalesInvoice::route('/{record}/edit'),
         ];
     }

@@ -57,8 +57,8 @@ class NegativeAdjustmentResource extends ErpResource
     {
         return [
             'index' => Pages\ListNegativeAdjustments::route('/'),
-            'create' => Pages\CreateNegativeAdjustment::route('/create'),
-            'view' => Pages\ViewNegativeAdjustment::route('/{record}'),
+            'create' => Pages\CreateNegativeAdjustment::route('/add'),
+            'view' => Pages\ViewNegativeAdjustment::route('/{record}/view'),
             'edit' => Pages\EditNegativeAdjustment::route('/{record}/edit'),
         ];
     }

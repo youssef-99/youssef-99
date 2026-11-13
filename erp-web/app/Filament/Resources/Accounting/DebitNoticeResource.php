@@ -28,8 +28,8 @@ class DebitNoticeResource extends VoucherResource
     {
         return [
             'index' => Pages\ListDebitNotices::route('/'),
-            'create' => Pages\CreateDebitNotice::route('/create'),
-            'view' => Pages\ViewDebitNotice::route('/{record}'),
+            'create' => Pages\CreateDebitNotice::route('/add'),
+            'view' => Pages\ViewDebitNotice::route('/{record}/view'),
             'edit' => Pages\EditDebitNotice::route('/{record}/edit'),
         ];
     }

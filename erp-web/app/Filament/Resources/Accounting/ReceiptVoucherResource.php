@@ -28,8 +28,8 @@ class ReceiptVoucherResource extends VoucherResource
     {
         return [
             'index' => Pages\ListReceiptVouchers::route('/'),
-            'create' => Pages\CreateReceiptVoucher::route('/create'),
-            'view' => Pages\ViewReceiptVoucher::route('/{record}'),
+            'create' => Pages\CreateReceiptVoucher::route('/add'),
+            'view' => Pages\ViewReceiptVoucher::route('/{record}/view'),
             'edit' => Pages\EditReceiptVoucher::route('/{record}/edit'),
         ];
     }

@@ -57,8 +57,8 @@ class PeriodicStocktakeResource extends ErpResource
     {
         return [
             'index' => Pages\ListPeriodicStocktakes::route('/'),
-            'create' => Pages\CreatePeriodicStocktake::route('/create'),
-            'view' => Pages\ViewPeriodicStocktake::route('/{record}'),
+            'create' => Pages\CreatePeriodicStocktake::route('/add'),
+            'view' => Pages\ViewPeriodicStocktake::route('/{record}/view'),
             'edit' => Pages\EditPeriodicStocktake::route('/{record}/edit'),
         ];
     }

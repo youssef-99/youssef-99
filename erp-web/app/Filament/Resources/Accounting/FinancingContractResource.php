@@ -154,8 +154,8 @@ class FinancingContractResource extends ErpResource
     {
         return [
             'index' => Pages\ListFinancingContracts::route('/'),
-            'create' => Pages\CreateFinancingContract::route('/create'),
-            'view' => Pages\ViewFinancingContract::route('/{record}'),
+            'create' => Pages\CreateFinancingContract::route('/add'),
+            'view' => Pages\ViewFinancingContract::route('/{record}/view'),
             'edit' => Pages\EditFinancingContract::route('/{record}/edit'),
         ];
     }

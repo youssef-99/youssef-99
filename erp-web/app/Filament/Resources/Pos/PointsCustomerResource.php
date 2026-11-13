@@ -100,7 +100,7 @@ class PointsCustomerResource extends ErpResource
     {
         return [
             'index' => ManagePointsCustomers::route('/'),
-            'view' => ViewPointsCustomer::route('/{record}'),
+            'view' => ViewPointsCustomer::route('/{record}/view'),
         ];
     }
 }

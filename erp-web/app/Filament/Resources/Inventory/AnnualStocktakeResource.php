@@ -57,8 +57,8 @@ class AnnualStocktakeResource extends ErpResource
     {
         return [
             'index' => Pages\ListAnnualStocktakes::route('/'),
-            'create' => Pages\CreateAnnualStocktake::route('/create'),
-            'view' => Pages\ViewAnnualStocktake::route('/{record}'),
+            'create' => Pages\CreateAnnualStocktake::route('/add'),
+            'view' => Pages\ViewAnnualStocktake::route('/{record}/view'),
             'edit' => Pages\EditAnnualStocktake::route('/{record}/edit'),
         ];
     }

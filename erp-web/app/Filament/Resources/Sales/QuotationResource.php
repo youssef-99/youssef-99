@@ -67,8 +67,8 @@ class QuotationResource extends ErpResource
     {
         return [
             'index' => Pages\ListQuotations::route('/'),
-            'create' => Pages\CreateQuotation::route('/create'),
-            'view' => Pages\ViewQuotation::route('/{record}'),
+            'create' => Pages\CreateQuotation::route('/add'),
+            'view' => Pages\ViewQuotation::route('/{record}/view'),
             'edit' => Pages\EditQuotation::route('/{record}/edit'),
         ];
     }

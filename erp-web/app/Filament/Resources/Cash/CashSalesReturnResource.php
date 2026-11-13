@@ -71,7 +71,7 @@ class CashSalesReturnResource extends ErpResource
     {
         return [
             'index' => Pages\ListCashSalesReturns::route('/'),
-            'view' => Pages\ViewCashSalesReturn::route('/{record}'),
+            'view' => Pages\ViewCashSalesReturn::route('/{record}/view'),
             'edit' => Pages\EditCashSalesReturn::route('/{record}/edit'),
         ];
     }

@@ -57,8 +57,8 @@ class PurchaseReturnResource extends ErpResource
     {
         return [
             'index' => Pages\ListPurchaseReturns::route('/'),
-            'create' => Pages\CreatePurchaseReturn::route('/create'),
-            'view' => Pages\ViewPurchaseReturn::route('/{record}'),
+            'create' => Pages\CreatePurchaseReturn::route('/add'),
+            'view' => Pages\ViewPurchaseReturn::route('/{record}/view'),
             'edit' => Pages\EditPurchaseReturn::route('/{record}/edit'),
         ];
     }

@@ -154,8 +154,8 @@ class CustomerOrderResource extends ErpResource
     {
         return [
             'index' => Pages\ListCustomerOrders::route('/'),
-            'create' => Pages\CreateCustomerOrder::route('/create'),
-            'view' => Pages\ViewCustomerOrder::route('/{record}'),
+            'create' => Pages\CreateCustomerOrder::route('/add'),
+            'view' => Pages\ViewCustomerOrder::route('/{record}/view'),
             'edit' => Pages\EditCustomerOrder::route('/{record}/edit'),
         ];
     }

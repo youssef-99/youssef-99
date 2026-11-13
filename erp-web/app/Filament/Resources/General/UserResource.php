@@ -199,7 +199,7 @@ class UserResource extends ErpResource
     {
         return [
             'index' => ListUsers::route('/'),
-            'create' => CreateUser::route('/create'),
+            'create' => CreateUser::route('/add'),
             'edit' => EditUser::route('/{record}/edit'),
         ];
     }

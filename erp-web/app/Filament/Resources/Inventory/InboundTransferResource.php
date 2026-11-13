@@ -68,7 +68,7 @@ class InboundTransferResource extends ErpResource
     {
         return [
             'index' => Pages\ListInboundTransfers::route('/'),
-            'view' => Pages\ViewInboundTransfer::route('/{record}'),
+            'view' => Pages\ViewInboundTransfer::route('/{record}/view'),
             'edit' => Pages\EditInboundTransfer::route('/{record}/edit'),
         ];
     }

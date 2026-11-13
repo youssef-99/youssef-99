@@ -56,8 +56,8 @@ class PosSalesReturnResource extends ErpResource
     {
         return [
             'index' => Pages\ListPosSalesReturns::route('/'),
-            'create' => Pages\CreatePosSalesReturn::route('/create'),
-            'view' => Pages\ViewPosSalesReturn::route('/{record}'),
+            'create' => Pages\CreatePosSalesReturn::route('/add'),
+            'view' => Pages\ViewPosSalesReturn::route('/{record}/view'),
             'edit' => Pages\EditPosSalesReturn::route('/{record}/edit'),
         ];
     }

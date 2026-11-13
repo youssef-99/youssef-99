@@ -63,7 +63,7 @@ class CashSalesInvoiceResource extends ErpResource
     {
         return [
             'index' => Pages\ListCashSalesInvoices::route('/'),
-            'view' => Pages\ViewCashSalesInvoice::route('/{record}'),
+            'view' => Pages\ViewCashSalesInvoice::route('/{record}/view'),
             'edit' => Pages\EditCashSalesInvoice::route('/{record}/edit'),
         ];
     }

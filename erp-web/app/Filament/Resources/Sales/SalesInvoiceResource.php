@@ -58,8 +58,8 @@ class SalesInvoiceResource extends ErpResource
     {
         return [
             'index' => Pages\ListSalesInvoices::route('/'),
-            'create' => Pages\CreateSalesInvoice::route('/create'),
-            'view' => Pages\ViewSalesInvoice::route('/{record}'),
+            'create' => Pages\CreateSalesInvoice::route('/add'),
+            'view' => Pages\ViewSalesInvoice::route('/{record}/view'),
             'edit' => Pages\EditSalesInvoice::route('/{record}/edit'),
         ];
     }

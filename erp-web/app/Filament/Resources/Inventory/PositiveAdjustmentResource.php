@@ -57,8 +57,8 @@ class PositiveAdjustmentResource extends ErpResource
     {
         return [
             'index' => Pages\ListPositiveAdjustments::route('/'),
-            'create' => Pages\CreatePositiveAdjustment::route('/create'),
-            'view' => Pages\ViewPositiveAdjustment::route('/{record}'),
+            'create' => Pages\CreatePositiveAdjustment::route('/add'),
+            'view' => Pages\ViewPositiveAdjustment::route('/{record}/view'),
             'edit' => Pages\EditPositiveAdjustment::route('/{record}/edit'),
         ];
     }

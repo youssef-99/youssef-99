@@ -58,8 +58,8 @@ class PurchaseInvoiceResource extends ErpResource
     {
         return [
             'index' => Pages\ListPurchaseInvoices::route('/'),
-            'create' => Pages\CreatePurchaseInvoice::route('/create'),
-            'view' => Pages\ViewPurchaseInvoice::route('/{record}'),
+            'create' => Pages\CreatePurchaseInvoice::route('/add'),
+            'view' => Pages\ViewPurchaseInvoice::route('/{record}/view'),
             'edit' => Pages\EditPurchaseInvoice::route('/{record}/edit'),
         ];
     }

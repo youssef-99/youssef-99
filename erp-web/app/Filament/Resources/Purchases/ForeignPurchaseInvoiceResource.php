@@ -58,8 +58,8 @@ class ForeignPurchaseInvoiceResource extends ErpResource
     {
         return [
             'index' => Pages\ListForeignPurchaseInvoices::route('/'),
-            'create' => Pages\CreateForeignPurchaseInvoice::route('/create'),
-            'view' => Pages\ViewForeignPurchaseInvoice::route('/{record}'),
+            'create' => Pages\CreateForeignPurchaseInvoice::route('/add'),
+            'view' => Pages\ViewForeignPurchaseInvoice::route('/{record}/view'),
             'edit' => Pages\EditForeignPurchaseInvoice::route('/{record}/edit'),
         ];
     }

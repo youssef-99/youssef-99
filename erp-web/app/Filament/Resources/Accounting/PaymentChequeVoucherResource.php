@@ -28,8 +28,8 @@ class PaymentChequeVoucherResource extends VoucherResource
     {
         return [
             'index' => Pages\ListPaymentChequeVouchers::route('/'),
-            'create' => Pages\CreatePaymentChequeVoucher::route('/create'),
-            'view' => Pages\ViewPaymentChequeVoucher::route('/{record}'),
+            'create' => Pages\CreatePaymentChequeVoucher::route('/add'),
+            'view' => Pages\ViewPaymentChequeVoucher::route('/{record}/view'),
             'edit' => Pages\EditPaymentChequeVoucher::route('/{record}/edit'),
         ];
     }

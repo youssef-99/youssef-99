@@ -28,8 +28,8 @@ class PaymentCashVoucherResource extends VoucherResource
     {
         return [
             'index' => Pages\ListPaymentCashVouchers::route('/'),
-            'create' => Pages\CreatePaymentCashVoucher::route('/create'),
-            'view' => Pages\ViewPaymentCashVoucher::route('/{record}'),
+            'create' => Pages\CreatePaymentCashVoucher::route('/add'),
+            'view' => Pages\ViewPaymentCashVoucher::route('/{record}/view'),
             'edit' => Pages\EditPaymentCashVoucher::route('/{record}/edit'),
         ];
     }

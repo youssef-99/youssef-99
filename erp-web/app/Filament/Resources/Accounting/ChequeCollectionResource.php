@@ -238,8 +238,8 @@ class ChequeCollectionResource extends ErpResource
     {
         return [
             'index' => Pages\ListChequeCollections::route('/'),
-            'create' => Pages\CreateChequeCollection::route('/create'),
-            'view' => Pages\ViewChequeCollection::route('/{record}'),
+            'create' => Pages\CreateChequeCollection::route('/add'),
+            'view' => Pages\ViewChequeCollection::route('/{record}/view'),
             'edit' => Pages\EditChequeCollection::route('/{record}/edit'),
         ];
     }

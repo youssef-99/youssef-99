@@ -315,8 +315,8 @@ class JournalVoucherResource extends ErpResource
     {
         return [
             'index' => Pages\ListJournalVouchers::route('/'),
-            'create' => Pages\CreateJournalVoucher::route('/create'),
-            'view' => Pages\ViewJournalVoucher::route('/{record}'),
+            'create' => Pages\CreateJournalVoucher::route('/add'),
+            'view' => Pages\ViewJournalVoucher::route('/{record}/view'),
             'edit' => Pages\EditJournalVoucher::route('/{record}/edit'),
         ];
     }

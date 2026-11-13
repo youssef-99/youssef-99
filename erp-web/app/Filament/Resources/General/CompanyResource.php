@@ -115,8 +115,8 @@ class CompanyResource extends ErpResource
     {
         return [
             'index' => ListCompanies::route('/'),
-            'create' => CreateCompany::route('/create'),
-            'view' => ViewCompany::route('/{record}'),
+            'create' => CreateCompany::route('/add'),
+            'view' => ViewCompany::route('/{record}/view'),
             'edit' => EditCompany::route('/{record}/edit'),
         ];
     }

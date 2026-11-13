@@ -76,7 +76,7 @@ class PurchaseOrderResource extends ErpResource
     {
         return [
             'index' => Pages\ListPurchaseOrders::route('/'),
-            'view' => Pages\ViewPurchaseOrder::route('/{record}'),
+            'view' => Pages\ViewPurchaseOrder::route('/{record}/view'),
             'edit' => Pages\EditPurchaseOrder::route('/{record}/edit'),
         ];
     }

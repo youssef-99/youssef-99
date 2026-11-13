@@ -57,8 +57,8 @@ class OutboundTransferResource extends ErpResource
     {
         return [
             'index' => Pages\ListOutboundTransfers::route('/'),
-            'create' => Pages\CreateOutboundTransfer::route('/create'),
-            'view' => Pages\ViewOutboundTransfer::route('/{record}'),
+            'create' => Pages\CreateOutboundTransfer::route('/add'),
+            'view' => Pages\ViewOutboundTransfer::route('/{record}/view'),
             'edit' => Pages\EditOutboundTransfer::route('/{record}/edit'),
         ];
     }

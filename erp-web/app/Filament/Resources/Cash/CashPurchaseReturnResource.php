@@ -71,7 +71,7 @@ class CashPurchaseReturnResource extends ErpResource
     {
         return [
             'index' => Pages\ListCashPurchaseReturns::route('/'),
-            'view' => Pages\ViewCashPurchaseReturn::route('/{record}'),
+            'view' => Pages\ViewCashPurchaseReturn::route('/{record}/view'),
             'edit' => Pages\EditCashPurchaseReturn::route('/{record}/edit'),
         ];
     }

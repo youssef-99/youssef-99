@@ -28,8 +28,8 @@ class CreditNoticeResource extends VoucherResource
     {
         return [
             'index' => Pages\ListCreditNotices::route('/'),
-            'create' => Pages\CreateCreditNotice::route('/create'),
-            'view' => Pages\ViewCreditNotice::route('/{record}'),
+            'create' => Pages\CreateCreditNotice::route('/add'),
+            'view' => Pages\ViewCreditNotice::route('/{record}/view'),
             'edit' => Pages\EditCreditNotice::route('/{record}/edit'),
         ];
     }

@@ -63,7 +63,7 @@ class CashPurchaseInvoiceResource extends ErpResource
     {
         return [
             'index' => Pages\ListCashPurchaseInvoices::route('/'),
-            'view' => Pages\ViewCashPurchaseInvoice::route('/{record}'),
+            'view' => Pages\ViewCashPurchaseInvoice::route('/{record}/view'),
             'edit' => Pages\EditCashPurchaseInvoice::route('/{record}/edit'),
         ];
     }

@@ -78,7 +78,7 @@ class GroupResource extends ErpResource
     {
         return [
             'index' => ListGroups::route('/'),
-            'create' => CreateGroup::route('/create'),
+            'create' => CreateGroup::route('/add'),
             'edit' => EditGroup::route('/{record}/edit'),
         ];
     }

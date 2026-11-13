@@ -284,8 +284,8 @@ class CustomerResource extends ErpResource
     {
         return [
             'index' => Pages\ListCustomers::route('/'),
-            'create' => Pages\CreateCustomer::route('/create'),
-            'view' => Pages\ViewCustomer::route('/{record}'),
+            'create' => Pages\CreateCustomer::route('/add'),
+            'view' => Pages\ViewCustomer::route('/{record}/view'),
             'edit' => Pages\EditCustomer::route('/{record}/edit'),
         ];
     }

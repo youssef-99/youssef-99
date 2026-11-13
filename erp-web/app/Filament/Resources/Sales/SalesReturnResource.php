@@ -62,8 +62,8 @@ class SalesReturnResource extends ErpResource
     {
         return [
             'index' => Pages\ListSalesReturns::route('/'),
-            'create' => Pages\CreateSalesReturn::route('/create'),
-            'view' => Pages\ViewSalesReturn::route('/{record}'),
+            'create' => Pages\CreateSalesReturn::route('/add'),
+            'view' => Pages\ViewSalesReturn::route('/{record}/view'),
             'edit' => Pages\EditSalesReturn::route('/{record}/edit'),
         ];
     }
