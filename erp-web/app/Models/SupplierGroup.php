@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\Concerns\HasBilingualName;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class SupplierGroup extends Model
 {
@@ -13,9 +14,8 @@ class SupplierGroup extends Model
 
     protected $guarded = ['id'];
 
-    protected function casts(): array
+    public function suppliers(): HasMany
     {
-        return [
-        ];
+        return $this->hasMany(Supplier::class, 'supplier_group_id');
     }
 }

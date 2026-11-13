@@ -22,6 +22,19 @@ class Accreditation extends Model
         ];
     }
 
+    public function isOpen(): bool
+    {
+        return ($this->status ?? 'open') !== 'closed';
+    }
+
+    /** "number - supplier" for selects. */
+    public function getLabelAttribute(): string
+    {
+        $supplier = $this->supplier?->name;
+
+        return $supplier ? "{$this->number} - {$supplier}" : (string) $this->number;
+    }
+
     public function supplier(): BelongsTo
     {
         return $this->belongsTo(Supplier::class, 'supplier_id');

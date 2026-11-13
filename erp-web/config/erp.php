@@ -16,6 +16,11 @@ return [
     'default_vat_rate' => 15,
 
     // Defaults for the ZATCA settings on General > System Settings (the settings table overrides them).
+    // Rasd (SFDA drug track-and-trace): only "sandbox" is implemented; other modes ask for a manual upload.
+    'rasd' => [
+        'mode' => env('RASD_MODE', 'sandbox'),
+    ],
+
     'zatca' => [
         'enabled' => env('ZATCA_ENABLED', true),
         'environment' => env('ZATCA_ENVIRONMENT', 'sandbox'),
