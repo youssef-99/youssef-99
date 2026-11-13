@@ -7,12 +7,12 @@ use App\Models\Company;
 use App\Reports\Report;
 use App\Reports\ReportRegistry;
 use App\Reports\ReportResult;
+use App\Support\SafeSpreadsheetRow;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
-use OpenSpout\Common\Entity\Row;
 use OpenSpout\Writer\CSV\Writer as CsvWriter;
 use OpenSpout\Writer\XLSX\Writer as XlsxWriter;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -21,7 +21,7 @@ use Symfony\Component\HttpFoundation\Response;
 /**
  * Report viewer (opens in a new tab): standalone page with the company header, the report table and a toolbar
  * (print, XLSX / CSV export, search, zoom). Filters arrive as the query string and are validated with the
- * report's rules. Access needs "reports.<group>.<report>.view".
+ * report's rules. Export cells go through {@see SafeSpreadsheetRow} so text cannot become a formula. Access needs "reports.<group>.<report>.view".
  */
 class ReportViewerController extends Controller
 {
@@ -61,7 +61,7 @@ class ReportViewerController extends Controller
             $writer->getCurrentSheet()->setName(Str::limit(preg_replace('/[\\\\\/?*:\[\]]/u', ' ', $result->title) ?: 'Report', 28, ''));
         }
         foreach ($result->toMatrix() as $cells) {
-            $writer->addRow(Row::fromValues($cells));
+            $writer->addRow(SafeSpreadsheetRow::fromValues($cells));
         }
         $writer->close();
 

@@ -65,7 +65,7 @@ class ReportFrameworkTest extends ErpTestCase
         }
 
         $this->get('/admin/reports/accounts/no-such-report')->assertNotFound();
-        $this->get('/admin/reports/inventory/items-balances')->assertNotFound();
+        $this->get('/admin/reports/no-such-group/items-balances')->assertNotFound();
     }
 
     public function test_show_report_validates_required_filters(): void

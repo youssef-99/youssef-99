@@ -136,6 +136,9 @@
             </div>
         @endif
 
+        @if ($result->layout)
+            @include($result->layout, ['result' => $result])
+        @else
         <table class="report" id="report-table">
             <thead>
             @if ($result->hasColumnGroups())
@@ -188,6 +191,7 @@
                 </tfoot>
             @endif
         </table>
+        @endif
 
         @if ($result->notes)
             <div class="notes">

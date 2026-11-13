@@ -33,6 +33,12 @@ final class ReportResult
 
     public bool $landscape = false;
 
+    /** Optional Blade view rendered by the viewer instead of the table (e.g. "reports.layouts.barcode-labels"). */
+    public ?string $layout = null;
+
+    /** @var array<string, mixed> extra data for a custom layout */
+    public array $layoutData = [];
+
     public function __construct(public string $title, public ?string $subtitle = null) {}
 
     public static function make(string $title, ?string $subtitle = null): self
@@ -74,6 +80,19 @@ final class ReportResult
     public function landscape(bool $landscape = true): self
     {
         $this->landscape = $landscape;
+
+        return $this;
+    }
+
+    /**
+     * Render the rows with a custom Blade view instead of the table (exports still use the columns and rows).
+     *
+     * @param  array<string, mixed>  $data
+     */
+    public function layout(string $view, array $data = []): self
+    {
+        $this->layout = $view;
+        $this->layoutData = $data;
 
         return $this;
     }
