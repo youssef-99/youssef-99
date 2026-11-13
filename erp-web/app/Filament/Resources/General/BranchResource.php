@@ -8,6 +8,9 @@ use App\Filament\Resources\General\BranchResource\Pages\ManageBranches;
 use App\Filament\Support\Columns;
 use App\Filament\Support\Fields;
 use App\Models\Branch;
+use App\Models\JournalEntry;
+use App\Models\PurchaseDocument;
+use App\Models\SalesDocument;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\TextInput;
@@ -59,7 +62,14 @@ class BranchResource extends ErpResource
                 TextColumn::make('phone')->label('Phone'),
                 Columns::boolean(),
             ])
-            ->recordActions([EditAction::make(), DeleteAction::make()])
+            ->recordActions([
+                EditAction::make(),
+                // Deleting a branch cascades to its warehouses and documents: only allow it for unused branches.
+                DeleteAction::make()->hidden(fn (Branch $record): bool => $record->warehouses()->exists()
+                    || SalesDocument::query()->where('branch_id', $record->id)->exists()
+                    || PurchaseDocument::query()->where('branch_id', $record->id)->exists()
+                    || JournalEntry::query()->where('branch_id', $record->id)->exists()),
+            ])
             ->defaultSort('code');
     }
 

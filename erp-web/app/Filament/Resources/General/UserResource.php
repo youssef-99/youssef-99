@@ -25,6 +25,7 @@ use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Validation\Rules\Password;
 
 /**
@@ -178,6 +179,17 @@ class UserResource extends ErpResource
 
                 Notification::make()->success()->title(__(':count sessions terminated', ['count' => $count]))->send();
             });
+    }
+
+    /** Only admins may edit or delete admin users. */
+    public static function canEdit(Model $record): bool
+    {
+        return parent::canEdit($record) && (! $record->is_admin || (bool) auth()->user()?->is_admin);
+    }
+
+    public static function canDelete(Model $record): bool
+    {
+        return parent::canDelete($record) && (! $record->is_admin || (bool) auth()->user()?->is_admin);
     }
 
     public static function getPages(): array

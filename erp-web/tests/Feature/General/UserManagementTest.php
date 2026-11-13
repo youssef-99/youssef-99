@@ -3,6 +3,7 @@
 namespace Tests\Feature\General;
 
 use App\Filament\Pages\Auth\Login;
+use App\Filament\Resources\General\UserResource;
 use App\Filament\Resources\General\UserResource\Pages\CreateUser;
 use App\Filament\Resources\General\UserResource\Pages\EditUser;
 use App\Filament\Resources\General\UserResource\Pages\ListUsers;
@@ -154,5 +155,18 @@ class UserManagementTest extends ErpTestCase
             'payload' => '',
             'last_activity' => now()->getTimestamp(),
         ]);
+    }
+
+    public function test_non_admin_with_edit_permission_cannot_edit_or_delete_an_admin(): void
+    {
+        $managers = Group::query()->create(['code' => '8', 'name_ar' => 'مدراء', 'permissions' => ['general.users.view', 'general.users.edit', 'general.users.delete']]);
+        $manager = User::factory()->create(['group_id' => $managers->id, 'is_admin' => false, 'is_active' => true]);
+        $clerk = User::factory()->create(['group_id' => $managers->id, 'is_admin' => false, 'is_active' => true]);
+
+        $this->actingAs($manager);
+
+        $this->assertFalse(UserResource::canEdit($this->admin));
+        $this->assertFalse(UserResource::canDelete($this->admin));
+        $this->assertTrue(UserResource::canEdit($clerk));
     }
 }
