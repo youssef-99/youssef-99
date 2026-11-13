@@ -161,7 +161,7 @@ class CustomerResource extends ErpResource
                     ->downloadable()
                     ->openable()
                     ->maxSize(10240)
-                    ->acceptedFileTypes(['application/pdf', 'image/*', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']),
+                    ->acceptedFileTypes(['application/pdf', 'image/png', 'image/jpeg', 'image/webp', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']),
             ]),
 
             Section::make(__('Accounts'))->visibleOn('view')->schema([

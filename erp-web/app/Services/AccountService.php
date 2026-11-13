@@ -8,7 +8,7 @@ use App\Models\Account;
 use App\Models\Bank;
 use App\Models\Voucher;
 use App\Models\VoucherLine;
-use OpenSpout\Common\Entity\Row;
+use App\Support\SafeSpreadsheetRow;
 use OpenSpout\Common\Entity\Style\Style;
 use OpenSpout\Writer\XLSX\Writer;
 
@@ -74,7 +74,7 @@ class AccountService
     {
         $writer = new Writer;
         $writer->openToFile($path);
-        $writer->addRow(Row::fromValues([
+        $writer->addRow(SafeSpreadsheetRow::fromValues([
             __('Account No.'),
             __('Account Name').' ('.__('Arabic').')',
             __('Account Name').' ('.__('English').')',
@@ -87,7 +87,7 @@ class AccountService
         ], (new Style)->setFontBold()));
 
         foreach (static::chartRows() as $row) {
-            $writer->addRow(Row::fromValues([
+            $writer->addRow(SafeSpreadsheetRow::fromValues([
                 $row['number'],
                 $row['name_ar'],
                 $row['name_en'],

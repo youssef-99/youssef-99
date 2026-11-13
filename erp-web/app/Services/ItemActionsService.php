@@ -6,9 +6,9 @@ use App\Enums\PurchaseDocumentType;
 use App\Models\Item;
 use App\Models\ItemBatch;
 use App\Models\StockMovement;
+use App\Support\SafeSpreadsheetRow;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
-use OpenSpout\Common\Entity\Row;
 use OpenSpout\Writer\CSV\Writer as CsvWriter;
 use OpenSpout\Writer\XLSX\Writer as XlsxWriter;
 
@@ -136,12 +136,12 @@ class ItemActionsService
 
         $writer = $format === 'csv' ? new CsvWriter : new XlsxWriter;
         $writer->openToFile($path);
-        $writer->addRow(Row::fromValues(['code', 'barcode', 'gtin', 'name_ar', 'name_en', 'unit', 'sale_price', 'sale_price_incl_vat', 'vat_rate', 'tax_exemption_reason', 'active']));
+        $writer->addRow(SafeSpreadsheetRow::fromValues(['code', 'barcode', 'gtin', 'name_ar', 'name_en', 'unit', 'sale_price', 'sale_price_incl_vat', 'vat_rate', 'tax_exemption_reason', 'active']));
 
         $ids = [];
         $items->clone()->with('unit')->orderBy('code')->chunkById(500, function ($chunk) use ($writer, &$ids) {
             foreach ($chunk as $item) {
-                $writer->addRow(Row::fromValues([
+                $writer->addRow(SafeSpreadsheetRow::fromValues([
                     (string) $item->code,
                     (string) $item->barcode,
                     (string) $item->gtin,

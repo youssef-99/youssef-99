@@ -68,6 +68,12 @@ class StockDocumentService
         return $doc;
     }
 
+    /** Whether the Post action applies (periodic stocktakes must be approved first). */
+    public static function canPost(StockDocument $doc): bool
+    {
+        return ! ($doc->typeEnum() === StockDocumentType::PeriodicStocktake && ! $doc->is_approved);
+    }
+
     public static function post(StockDocument $doc): StockDocument
     {
         if ($doc->is_posted) {

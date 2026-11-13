@@ -71,7 +71,10 @@ class UserResource extends ErpResource
                         ->maxLength(255)
                         ->unique(User::class, 'email', ignoreRecord: true),
                     TextInput::make('phone')->label('Phone')->tel()->maxLength(50),
-                    Fields::relation('group_id', 'group', 'Group')->required(),
+                    Fields::relation('group_id', 'group', 'Group')
+                        ->required()
+                        // Non-admins cannot move themselves into another (more privileged) group.
+                        ->disabled(fn (?User $record): bool => (bool) $record?->is(auth()->user()) && ! auth()->user()?->is_admin),
                     Fields::relation('default_branch_id', 'defaultBranch', 'Default Branch')->required(),
                     Select::make('locale')
                         ->label('Language')
@@ -173,7 +176,7 @@ class UserResource extends ErpResource
             ->color('danger')
             ->requiresConfirmation()
             ->modalDescription(__('The user will be logged out from every device.'))
-            ->visible(fn (User $record): bool => static::userCan(Permission::Edit) && ! $record->is(auth()->user()))
+            ->visible(fn (User $record): bool => static::userCan(Permission::Edit) && ! $record->is(auth()->user()) && (! $record->is_admin || (bool) auth()->user()?->is_admin))
             ->action(function (User $record): void {
                 $count = $record->terminateSessions();
 

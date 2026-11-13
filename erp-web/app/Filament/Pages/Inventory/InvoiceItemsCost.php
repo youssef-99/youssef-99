@@ -3,6 +3,7 @@
 namespace App\Filament\Pages\Inventory;
 
 use App\Enums\Module;
+use App\Enums\Permission;
 use App\Enums\SalesDocumentType;
 use App\Filament\Concerns\HasErpPermission;
 use App\Filament\Support\Columns;
@@ -33,6 +34,9 @@ use Illuminate\Database\Eloquent\Builder;
  */
 class InvoiceItemsCost extends Page implements HasTable
 {
+    /** @var array<Permission> */
+    protected static array $pagePermissions = [Permission::Post];
+
     use HasErpPermission;
     use InteractsWithTable;
 
@@ -56,7 +60,7 @@ class InvoiceItemsCost extends Page implements HasTable
     protected function getHeaderActions(): array
     {
         return [
-            Action::make('updateCost')
+            Action::make('updateCost')->visible(fn (): bool => static::userCan(Permission::Post))
                 ->label('Update Cost')
                 ->icon('heroicon-o-arrow-path')
                 ->color('warning')
@@ -69,7 +73,7 @@ class InvoiceItemsCost extends Page implements HasTable
                         ->body(__(':lines lines in :documents invoices re-costed (:items items).', $result))
                         ->send();
                 }),
-            Action::make('postEntries')
+            Action::make('postEntries')->visible(fn (): bool => static::userCan(Permission::Post))
                 ->label('Post Invoice Entries')
                 ->icon('heroicon-o-arrow-up-tray')
                 ->color('success')

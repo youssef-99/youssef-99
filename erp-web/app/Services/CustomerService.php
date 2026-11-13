@@ -7,11 +7,11 @@ use App\Models\Account;
 use App\Models\Customer;
 use App\Models\JournalEntryLine;
 use App\Models\VoucherLine;
+use App\Support\SafeSpreadsheetRow;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use OpenSpout\Common\Entity\Row;
 use OpenSpout\Writer\XLSX\Writer;
 
 /**
@@ -118,10 +118,10 @@ class CustomerService
     {
         $writer = new Writer;
         $writer->openToFile($path);
-        $writer->addRow(Row::fromValues(static::exportHeadings()));
+        $writer->addRow(SafeSpreadsheetRow::fromValues(static::exportHeadings()));
 
         $query->reorder()->with(['customerGroup', 'salesman', 'city', 'account'])->lazyById(500)->each(function (Customer $c) use ($writer) {
-            $writer->addRow(Row::fromValues([
+            $writer->addRow(SafeSpreadsheetRow::fromValues([
                 (string) $c->code,
                 $c->name,
                 $c->customerGroup?->name,

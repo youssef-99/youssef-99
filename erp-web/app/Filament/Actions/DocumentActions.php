@@ -12,7 +12,8 @@ use Illuminate\Database\Eloquent\Model;
  * Post / Unpost / Print actions for documents.
  *
  * $service must expose static post(Model) and unpost(Model). $resource is the ErpResource class (for permissions).
- * Works as a table row action or a page header action.
+ * Works as a table row action or a page header action. A service may define
+ * `public static function canPost(Model $record): bool` to hide Post when posting would be refused.
  */
 class DocumentActions
 {
@@ -23,7 +24,8 @@ class DocumentActions
             ->icon('heroicon-o-check-badge')
             ->color('success')
             ->requiresConfirmation()
-            ->visible(fn (Model $record) => ! $record->is_posted && $resource::userCan(Permission::Post))
+            ->visible(fn (Model $record) => ! $record->is_posted && $resource::userCan(Permission::Post)
+                && (! method_exists($service, 'canPost') || $service::canPost($record)))
             ->action(function (Model $record, Action $action) use ($service) {
                 try {
                     $service::post($record);

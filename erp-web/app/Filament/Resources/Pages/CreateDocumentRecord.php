@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Pages;
 
+use App\Enums\Permission;
 use App\Exceptions\ErpException;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\CreateRecord;
@@ -27,6 +28,12 @@ abstract class CreateDocumentRecord extends CreateRecord
     {
         $service = static::getResource()::getDocumentService();
         $service::recalculate($this->record);
+
+        if (! empty($this->data['post_now']) && ! static::getResource()::userCan(Permission::Post)) {
+            Notification::make()->warning()->title(__('Saved, but you do not have permission to post'))->send();
+
+            return;
+        }
 
         if (! empty($this->data['post_now'])) {
             try {

@@ -3,6 +3,7 @@
 namespace App\Filament\Pages\General;
 
 use App\Enums\Module;
+use App\Enums\Permission;
 use App\Filament\Concerns\HasErpPermission;
 use App\Filament\Resources\General\EgsUnitResource;
 use App\Models\Account;
@@ -33,6 +34,9 @@ use Illuminate\Support\Facades\DB;
  */
 class SystemSettings extends Page
 {
+    /** @var array<Permission> */
+    protected static array $pagePermissions = [Permission::Edit];
+
     use HasErpPermission;
 
     protected static ?Module $module = Module::General;
@@ -198,7 +202,7 @@ class SystemSettings extends Page
                 ->livewireSubmitHandler('save')
                 ->footer([
                     Actions::make([
-                        Action::make('save')
+                        Action::make('save')->visible(fn (): bool => static::userCan(Permission::Edit))
                             ->label('Save')
                             ->submit('save')
                             ->keyBindings(['mod+s']),
@@ -209,6 +213,8 @@ class SystemSettings extends Page
 
     public function save(): void
     {
+        abort_unless(static::userCan(Permission::Edit), 403);
+
         $state = $this->form->getState();
 
         DB::transaction(function () use ($state): void {

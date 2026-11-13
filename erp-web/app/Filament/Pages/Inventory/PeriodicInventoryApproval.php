@@ -30,6 +30,9 @@ use Illuminate\Database\Eloquent\Collection;
  */
 class PeriodicInventoryApproval extends Page implements HasTable
 {
+    /** @var array<Permission> */
+    protected static array $pagePermissions = [Permission::Approve];
+
     use HasErpPermission;
     use InteractsWithTable;
 
@@ -52,7 +55,7 @@ class PeriodicInventoryApproval extends Page implements HasTable
 
     public static function canApprove(): bool
     {
-        return PeriodicStocktakeResource::userCan(Permission::Post);
+        return static::userCan(Permission::Approve);
     }
 
     public function table(Table $table): Table

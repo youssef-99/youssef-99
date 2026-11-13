@@ -9,6 +9,8 @@ use Illuminate\Support\Str;
 /**
  * For custom Filament pages (reports, tools). Set `protected static ?Module $module` and
  * optionally `protected static ?string $permissionKey`. Access requires "{key}.view".
+ * Pages whose actions change data declare them with
+ * `protected static array $pagePermissions = [Permission::Edit];` and gate the actions with `static::userCan()`.
  */
 trait HasErpPermission
 {
@@ -25,7 +27,12 @@ trait HasErpPermission
     /** @return array<Permission> */
     public static function getPermissionActions(): array
     {
-        return [Permission::View];
+        return array_merge([Permission::View], property_exists(static::class, 'pagePermissions') ? static::$pagePermissions : []);
+    }
+
+    public static function userCan(Permission $permission): bool
+    {
+        return (bool) auth()->user()?->hasPermission(static::getPermissionKey().'.'.$permission->value);
     }
 
     public static function canAccess(): bool

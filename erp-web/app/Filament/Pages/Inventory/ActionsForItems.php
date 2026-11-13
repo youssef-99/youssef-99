@@ -4,6 +4,7 @@ namespace App\Filament\Pages\Inventory;
 
 use App\Enums\ItemType;
 use App\Enums\Module;
+use App\Enums\Permission;
 use App\Filament\Concerns\HasErpPermission;
 use App\Filament\Support\Columns;
 use App\Filament\Support\Filters;
@@ -42,6 +43,9 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
  */
 class ActionsForItems extends Page implements HasTable
 {
+    /** @var array<Permission> */
+    protected static array $pagePermissions = [Permission::Edit];
+
     use HasErpPermission;
     use InteractsWithTable;
 
@@ -65,13 +69,13 @@ class ActionsForItems extends Page implements HasTable
     protected function getHeaderActions(): array
     {
         return [
-            Action::make('updatePurchasePrice')
+            Action::make('updatePurchasePrice')->visible(fn (): bool => static::userCan(Permission::Edit))
                 ->label('Update Purchase Price')
                 ->icon('heroicon-o-arrow-path')
                 ->modalDescription(__('Sets each item\'s purchase price to the price of its last posted purchase.'))
                 ->schema(static::scopeSchema())
                 ->action(fn (array $data) => static::notifyCount(ItemActionsService::updatePurchasePriceFromLastPurchase(ItemActionsService::scope($data)))),
-            Action::make('updateSalePrice')
+            Action::make('updateSalePrice')->visible(fn (): bool => static::userCan(Permission::Edit))
                 ->label('Update Selling Price by %')
                 ->icon('heroicon-o-receipt-percent')
                 ->schema([
@@ -84,7 +88,7 @@ class ActionsForItems extends Page implements HasTable
                 ])
                 ->requiresConfirmation()
                 ->action(fn (array $data) => static::notifyCount(ItemActionsService::updateSalePriceByPercent(ItemActionsService::scope($data), (float) $data['percent'], (bool) ($data['include_batches'] ?? true)))),
-            Action::make('setActive')
+            Action::make('setActive')->visible(fn (): bool => static::userCan(Permission::Edit))
                 ->label('Activate / Deactivate')
                 ->icon('heroicon-o-power')
                 ->schema([
@@ -93,7 +97,7 @@ class ActionsForItems extends Page implements HasTable
                 ])
                 ->requiresConfirmation()
                 ->action(fn (array $data) => static::notifyCount(ItemActionsService::setActive(ItemActionsService::scope($data), (bool) $data['active']))),
-            Action::make('sendToEpos')
+            Action::make('sendToEpos')->visible(fn (): bool => static::userCan(Permission::Edit))
                 ->label('Send Items to e-POS')
                 ->icon('heroicon-o-paper-airplane')
                 ->color('success')
@@ -111,7 +115,7 @@ class ActionsForItems extends Page implements HasTable
 
                     return static::download(ItemActionsService::exportToEpos($query, $data['format'] ?? 'xlsx'));
                 }),
-            Action::make('recalculateBatches')
+            Action::make('recalculateBatches')->visible(fn (): bool => static::userCan(Permission::Edit))
                 ->label('Recalculate Batch Balances')
                 ->icon('heroicon-o-calculator')
                 ->color('gray')
@@ -186,17 +190,17 @@ class ActionsForItems extends Page implements HasTable
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    BulkAction::make('activateSelected')->label('Activate')->icon('heroicon-o-check-circle')
+                    BulkAction::make('activateSelected')->visible(fn (): bool => static::userCan(Permission::Edit))->label('Activate')->icon('heroicon-o-check-circle')
                         ->action(fn (Collection $records) => static::notifyCount(ItemActionsService::setActive($selected($records), true)))
                         ->deselectRecordsAfterCompletion(),
-                    BulkAction::make('deactivateSelected')->label('Deactivate')->icon('heroicon-o-x-circle')->color('danger')
+                    BulkAction::make('deactivateSelected')->visible(fn (): bool => static::userCan(Permission::Edit))->label('Deactivate')->icon('heroicon-o-x-circle')->color('danger')
                         ->requiresConfirmation()
                         ->action(fn (Collection $records) => static::notifyCount(ItemActionsService::setActive($selected($records), false)))
                         ->deselectRecordsAfterCompletion(),
-                    BulkAction::make('updatePurchasePriceSelected')->label('Update Purchase Price')->icon('heroicon-o-arrow-path')
+                    BulkAction::make('updatePurchasePriceSelected')->visible(fn (): bool => static::userCan(Permission::Edit))->label('Update Purchase Price')->icon('heroicon-o-arrow-path')
                         ->action(fn (Collection $records) => static::notifyCount(ItemActionsService::updatePurchasePriceFromLastPurchase($selected($records))))
                         ->deselectRecordsAfterCompletion(),
-                    BulkAction::make('sendSelectedToEpos')->label('Send Items to e-POS')->icon('heroicon-o-paper-airplane')
+                    BulkAction::make('sendSelectedToEpos')->visible(fn (): bool => static::userCan(Permission::Edit))->label('Send Items to e-POS')->icon('heroicon-o-paper-airplane')
                         ->action(fn (Collection $records): BinaryFileResponse => static::download(ItemActionsService::exportToEpos($selected($records))))
                         ->deselectRecordsAfterCompletion(),
                 ])->label(__('Actions')),

@@ -85,6 +85,7 @@ class CompanyResource extends ErpResource
                     FileUpload::make('logo')
                         ->label('Logo')
                         ->image()
+                        ->acceptedFileTypes(['image/png', 'image/jpeg', 'image/webp'])
                         ->disk('public')
                         ->directory('company-logos')
                         ->maxSize(2048),
