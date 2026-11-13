@@ -34,6 +34,11 @@ class Motivation extends Model
         return $this->belongsTo(Item::class, 'item_id');
     }
 
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'user_id');
+    }
+
     public function branch(): BelongsTo
     {
         return $this->belongsTo(Branch::class, 'branch_id');

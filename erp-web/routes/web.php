@@ -17,6 +17,11 @@ Route::get('/locale/{locale}', function (string $locale) {
 
 Route::middleware(['web', 'auth', SetLocale::class])->group(function () {
     Route::get('/print/{type}/{id}', [PrintController::class, 'show'])->name('print');
-    Route::get('/report-viewer/{report}', [ReportViewerController::class, 'show'])->name('report.viewer');
-    Route::get('/report-viewer/{report}/export/{format}', [ReportViewerController::class, 'export'])->name('report.export');
+    // Report keys are "<group>/<report>" (e.g. accounts/account-statement).
+    Route::get('/report-viewer/{report}/export/{format}', [ReportViewerController::class, 'export'])
+        ->where(['report' => '[a-z0-9-]+/[a-z0-9-]+', 'format' => 'xlsx|csv'])
+        ->name('report.export');
+    Route::get('/report-viewer/{report}', [ReportViewerController::class, 'show'])
+        ->where('report', '[a-z0-9-]+/[a-z0-9-]+')
+        ->name('report.viewer');
 });

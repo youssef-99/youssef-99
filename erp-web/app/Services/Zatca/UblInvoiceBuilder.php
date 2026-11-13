@@ -7,21 +7,30 @@ use App\Models\Company;
 use App\Models\SalesDocument;
 
 /**
- * Builds a ZATCA UBL 2.1 invoice / credit note XML (without the UBLExtensions signature block).
+ * Builds a ZATCA UBL 2.1 invoice (388), credit note (381) or debit note (383) XML.
+ *
+ * Without $qr the output is the hashing input (no QR reference, no cac:Signature), as ZATCA requires.
+ * The XAdES UBLExtensions block is not produced.
  */
 class UblInvoiceBuilder
 {
-    public function build(SalesDocument $doc): string
+    public function build(SalesDocument $doc, ?string $qr = null, ?string $signatureValue = null): string
     {
-        $type = SalesDocumentType::from($doc->type);
+        $type = SalesDocumentType::tryFrom($doc->type);
         $company = $doc->branch?->company ?? Company::query()->first();
-        $isReturn = $type->isReturn();
+        $isDebit = $doc->type === ZatcaNoteService::DEBIT_NOTE;
+        $isReturn = $doc->type === ZatcaNoteService::CREDIT_NOTE || (bool) $type?->isReturn();
         $standard = $doc->zatca_invoice_type === 'standard';
-        $typeCode = $isReturn ? '381' : '388';
+        $typeCode = match (true) {
+            $isDebit => '383',
+            $isReturn => '381',
+            default => '388',
+        };
         // name attribute: 0100000 = standard tax invoice, 0200000 = simplified
         $subtype = $standard ? '0100000' : '0200000';
-        $buyer = $doc->customer ?? $doc->cashCustomer;
-        $time = $doc->time ?: ($doc->created_at?->format('H:i:s') ?? '00:00:00');
+        $buyer = $doc->customer ?? $doc->cashCustomer ?? $doc->originalDocument?->customer ?? $doc->originalDocument?->cashCustomer;
+        $time = ZatcaService::time($doc);
+        $reason = $doc->zatca_note_reason ?: ($doc->notes ?: 'Return of goods');
 
         $x = new \XMLWriter;
         $x->openMemory();
@@ -45,7 +54,7 @@ class UblInvoiceBuilder
         $x->writeElement('cbc:DocumentCurrencyCode', 'SAR');
         $x->writeElement('cbc:TaxCurrencyCode', 'SAR');
 
-        if ($isReturn && $doc->originalDocument) {
+        if (($isReturn || $isDebit) && $doc->originalDocument) {
             $x->startElement('cac:BillingReference');
             $x->startElement('cac:InvoiceDocumentReference');
             $x->writeElement('cbc:ID', $doc->originalDocument->number);
@@ -55,6 +64,16 @@ class UblInvoiceBuilder
 
         $this->additionalRef($x, 'ICV', null, (string) $doc->zatca_icv);
         $this->additionalRef($x, 'PIH', $doc->zatca_previous_hash, null);
+        if ($qr !== null) {
+            $this->additionalRef($x, 'QR', $qr, null);
+            $x->startElement('cac:Signature');
+            $x->writeElement('cbc:ID', 'urn:oasis:names:specification:ubl:signature:Invoice');
+            $x->writeElement('cbc:SignatureMethod', 'urn:oasis:names:specification:ubl:dsig:enveloped:xades');
+            if ($signatureValue !== null) {
+                $x->writeComment(' ECDSA-SHA256 '.$signatureValue.' ');
+            }
+            $x->endElement();
+        }
 
         // Seller
         $x->startElement('cac:AccountingSupplierParty');
@@ -95,11 +114,12 @@ class UblInvoiceBuilder
         $x->startElement('cac:PaymentMeans');
         $x->writeElement('cbc:PaymentMeansCode', match (true) {
             (float) $doc->card_amount > 0 => '48',
-            in_array($doc->payment_method, ['cash'], true) || $type->isPos() || $type->isCash() => '10',
+            in_array($doc->payment_method, ['cash'], true) || $type?->isPos() || $type?->isCash() => '10',
             default => '30',
         });
-        if ($isReturn) {
-            $x->writeElement('cbc:InstructionNote', $doc->notes ?: 'Return');
+        if ($isReturn || $isDebit) {
+            // BR-KSA-17: reason for issuing the credit / debit note
+            $x->writeElement('cbc:InstructionNote', mb_substr($reason, 0, 1000));
         }
         $x->endElement();
 
@@ -110,7 +130,7 @@ class UblInvoiceBuilder
             $this->amount($x, 'cbc:Amount', $doc->additional_discount);
             $x->startElement('cac:TaxCategory');
             $x->writeElement('cbc:ID', 'S');
-            $x->writeElement('cbc:Percent', '15.00');
+            $x->writeElement('cbc:Percent', number_format((float) ($doc->lines->max('tax_percent') ?? 15), 2, '.', ''));
             $x->startElement('cac:TaxScheme');
             $x->writeElement('cbc:ID', 'VAT');
             $x->endElement();

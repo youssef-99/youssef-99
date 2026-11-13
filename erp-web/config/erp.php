@@ -25,5 +25,7 @@ return [
         'enabled' => env('ZATCA_ENABLED', true),
         'environment' => env('ZATCA_ENVIRONMENT', 'sandbox'),
         'submission_mode' => env('ZATCA_SUBMISSION_MODE', 'on_post'),
+        // Simulate ZATCA acceptance without any network call (demo / offline installs).
+        'offline' => env('ZATCA_OFFLINE', false),
     ],
 ];
