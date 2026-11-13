@@ -245,7 +245,7 @@ class ZatcaComplianceTest extends ErpTestCase
             SalesDocumentService::post($return);
             $this->fail('A return without its original invoice was posted.');
         } catch (ErpException $e) {
-            $this->assertStringContainsString(__('original invoice'), $e->getMessage());
+            $this->assertSame(__('Select the original invoice: ZATCA credit and debit notes must reference the invoice they correct.'), $e->getMessage());
         }
 
         $this->assertFalse($return->refresh()->is_posted);
