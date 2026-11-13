@@ -60,6 +60,7 @@ class AccreditationService
         }
 
         return DB::transaction(function () use ($fee, $accreditation, $debit, $credit) {
+            PostingLock::lock($fee, expectPosted: false);
             $desc = __('L/C Fee').' #'.($fee->number ?: $fee->id).' - '.$accreditation->number.($fee->fee_type ? ' - '.__(static::feeTypes()[$fee->fee_type] ?? $fee->fee_type) : '');
             $line = fn (int $account, float $amount) => SalesDocumentService::side($account, $amount, $desc) + ['accreditation_id' => $accreditation->id];
 
@@ -80,10 +81,13 @@ class AccreditationService
 
     public static function unpost(AccreditationFee $fee): AccreditationFee
     {
-        JournalService::removeFor($fee);
-        $fee->forceFill(['is_posted' => false, 'journal_entry_id' => null])->save();
+        return DB::transaction(function () use ($fee): AccreditationFee {
+            PostingLock::lock($fee, expectPosted: true);
+            JournalService::removeFor($fee);
+            $fee->forceFill(['is_posted' => false, 'journal_entry_id' => null])->save();
 
-        return $fee;
+            return $fee;
+        });
     }
 
     /** @return array<string, string> */

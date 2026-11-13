@@ -72,21 +72,59 @@ class StockService
         ]);
     }
 
+    /**
+     * Movement types that relocate stock between warehouses: they never change the moving average cost.
+     *
+     * @var list<string>
+     */
+    public const TRANSFER_TYPES = ['transfer_in', 'transfer_out'];
+
+    /**
+     * Delete the movements of a document (unpost) and rebuild the moving average cost of every
+     * item whose average an incoming movement of that document had changed.
+     */
     public static function removeFor(Model $source): void
     {
-        StockMovement::query()
+        $query = StockMovement::query()
             ->where('source_type', $source->getMorphClass())
-            ->where('source_id', $source->getKey())
-            ->delete();
+            ->where('source_id', $source->getKey());
+
+        $affectedItemIds = (clone $query)
+            ->where('qty_in', '>', 0)
+            ->where('unit_cost', '>', 0)
+            ->whereNotIn('movement_type', self::TRANSFER_TYPES)
+            ->distinct()
+            ->pluck('item_id');
+
+        $query->delete();
+
+        foreach ($affectedItemIds as $itemId) {
+            static::refreshAverageCost((int) $itemId);
+        }
+    }
+
+    /** Rebuild items.average_cost from the ledger. */
+    public static function refreshAverageCost(int $itemId): float
+    {
+        $average = static::replayAverageCost($itemId);
+        Item::query()->whereKey($itemId)->update(['average_cost' => $average]);
+
+        return $average;
+    }
+
+    /** Whether a movement re-averages the item's cost: incoming, costed, and not a warehouse transfer. */
+    public static function changesAverageCost(string $movementType, float $qty, float $unitCost): bool
+    {
+        return $qty > 0 && $unitCost > 0 && ! in_array($movementType, self::TRANSFER_TYPES, true);
     }
 
     /**
      * Record a movement. Positive $qty = in, negative = out.
-     * For incoming movements with a cost the item's moving average cost is updated.
+     * For incoming movements with a cost the item's moving average cost is updated (transfers excepted).
      */
     public static function move(Model $source, string $type, Item $item, int $branchId, int $warehouseId, $date, float $qty, float $unitCost = 0, ?int $batchId = null, bool $allowNegative = true): StockMovement
     {
-        if ($item->item_nature === 'service' || $item->item_type === 'service') {
+        if ($item->isService()) {
             // services do not move stock
             return new StockMovement;
         }
@@ -100,7 +138,7 @@ class StockService
             }
         }
 
-        if ($qty > 0 && $unitCost > 0) {
+        if (static::changesAverageCost($type, $qty, $unitCost)) {
             $onHand = max(0, static::balance($item->id));
             $currentCost = (float) $item->average_cost;
             $newCost = ($onHand + $qty) > 0 ? (($onHand * $currentCost) + ($qty * $unitCost)) / ($onHand + $qty) : $unitCost;
@@ -131,7 +169,7 @@ class StockService
     /**
      * Replay the item's ledger in date order and rebuild the moving weighted average cost,
      * using the same rule as move(): incoming quantities with a cost re-average, outgoing
-     * quantities leave the average unchanged.
+     * quantities and transfers between warehouses leave the average unchanged.
      *
      * The optional $visitor is called for every movement with the average cost in effect just
      * before it; returning a float overrides that movement's unit cost (and is saved).
@@ -158,7 +196,7 @@ class StockService
                 }
 
                 $cost = (float) $movement->unit_cost;
-                if ($qty > 0 && $cost > 0) {
+                if (static::changesAverageCost((string) $movement->movement_type, $qty, $cost)) {
                     $base = max(0.0, $onHand);
                     $average = ($base + $qty) > 0 ? (($base * $average) + ($qty * $cost)) / ($base + $qty) : $cost;
                 }

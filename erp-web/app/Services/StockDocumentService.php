@@ -96,9 +96,14 @@ class StockDocumentService
         }
 
         return DB::transaction(function () use ($doc, $type) {
+            PostingLock::lock($doc, expectPosted: false);
             static::recalculate($doc);
             if ($doc->lines->isEmpty()) {
                 throw new ErpException(__('The document has no items.'));
+            }
+
+            if (static::priceOutgoingLines($doc, $type)) {
+                static::recalculate($doc);
             }
 
             $value = 0.0;
@@ -155,6 +160,38 @@ class StockDocumentService
     }
 
     /**
+     * Stock that leaves (negative adjustment, outbound transfer, stocktake shortage) is valued at the
+     * item's current moving average cost at posting time, not at the price captured when the draft was
+     * entered, so the inventory account moves by what the stock ledger relieves.
+     *
+     * @return bool whether any line price changed
+     */
+    protected static function priceOutgoingLines(StockDocument $doc, StockDocumentType $type): bool
+    {
+        $changed = false;
+        foreach ($doc->lines as $line) {
+            $outgoing = match ($type) {
+                StockDocumentType::NegativeAdjustment, StockDocumentType::OutboundTransfer => true,
+                StockDocumentType::AnnualStocktake, StockDocumentType::PeriodicStocktake => round((float) $line->quantity - (float) $line->system_qty, 3) < 0,
+                default => false,
+            };
+            $item = $outgoing ? $line->item()->first() : null;
+            if (! $item || $item->isService()) {
+                continue;
+            }
+
+            $cost = round(StockService::unitCost($item), 4);
+            if ($cost > 0 && abs($cost - (float) $line->price) > 0.00001) {
+                $line->price = $cost;
+                $line->saveQuietly();
+                $changed = true;
+            }
+        }
+
+        return $changed;
+    }
+
+    /**
      * Approve a periodic stocktake record (اعتماد محضر الجرد الدوري) and, by default, post it.
      */
     public static function approve(StockDocument $doc, bool $post = true): StockDocument
@@ -180,6 +217,7 @@ class StockDocumentService
         }
 
         return DB::transaction(function () use ($doc) {
+            PostingLock::lock($doc, expectPosted: true);
             StockService::removeFor($doc);
             JournalService::removeFor($doc);
             StockDocument::query()->where('related_document_id', $doc->id)->where('is_posted', false)->get()->each->delete();

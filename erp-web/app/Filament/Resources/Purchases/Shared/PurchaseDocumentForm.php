@@ -209,18 +209,9 @@ class PurchaseDocumentForm
             return;
         }
 
-        $available = PurchaseDocumentService::returnableQuantities($original);
+        $rows = PurchaseDocumentService::returnLinesFor($original);
         $lines = [];
-        foreach ($original->lines as $line) {
-            $qty = min((float) $line->quantity, (float) ($available[$line->item_id] ?? 0));
-            if ($qty <= 0) {
-                continue;
-            }
-            $row = $line->only(['item_id', 'unit_id', 'batch_no', 'unit_price', 'discount_percent', 'discount2_percent', 'tax_percent']);
-            $row['expiry_date'] = $line->expiry_date?->toDateString();
-            $row['quantity'] = $qty;
-            $row['bonus_qty'] = 0;
-            $row['bonus_percent'] = 0;
+        foreach ($rows as $row) {
             $lines[(string) Str::uuid()] = array_merge($row, array_intersect_key(DocumentCalculator::line($row), array_flip(['gross', 'discount', 'discount2', 'tax', 'net', 'unit_net'])));
         }
 
@@ -230,6 +221,7 @@ class PurchaseDocumentForm
         $set('account_id', $original->account_id);
         $set('warehouse_id', $original->warehouse_id);
         $set('supplier_invoice_no', $original->supplier_invoice_no);
+        $set('additional_discount', PurchaseDocumentService::returnAdditionalDiscount($original, $rows));
         DocumentLines::updateTotals($get, $set);
     }
 }

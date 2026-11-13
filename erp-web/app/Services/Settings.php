@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\Cache;
  *   accounts.vat_output, accounts.vat_input, accounts.inventory, accounts.cogs,
  *   accounts.purchase_discount, accounts.cheques_under_collection,
  *   accounts.inventory_adjustment, accounts.stock_in_transit, accounts.opening_balances,
- *   accounts.foreign_purchase_expenses
+ *   accounts.foreign_purchase_expenses, accounts.service_expenses (purchased service items; falls back to cogs)
  */
 class Settings
 {
@@ -37,6 +37,7 @@ class Settings
         'accounts.stock_in_transit' => 'Stock in Transit Account',
         'accounts.opening_balances' => 'Opening Balances Account',
         'accounts.foreign_purchase_expenses' => 'Foreign Purchase Expenses Account',
+        'accounts.service_expenses' => 'Purchased Services Expense Account',
     ];
 
     public static function get(string $key, mixed $default = null): mixed

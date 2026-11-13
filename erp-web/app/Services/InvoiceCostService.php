@@ -63,13 +63,17 @@ class InvoiceCostService
             ->pluck('item_id');
 
         $lineCount = 0;
+        $originalLines = SalesDocumentLine::query()
+            ->whereIn('sales_document_id', $documents->pluck('original_document_id')->filter()->unique())
+            ->get(['id', 'sales_document_id', 'item_id', 'item_batch_id', 'quantity', 'free_qty', 'unit_cost'])
+            ->groupBy('sales_document_id');
 
-        DB::transaction(function () use ($itemIds, $documentsById, $morph, &$lineCount) {
+        DB::transaction(function () use ($itemIds, $documentsById, $morph, $originalLines, &$lineCount) {
             foreach ($itemIds as $itemId) {
                 /** @var array<int, float> $newCosts sales_document_id => unit cost */
                 $newCosts = [];
 
-                $average = StockService::replayAverageCost((int) $itemId, function (StockMovement $movement, float $average) use ($documentsById, $morph, $itemId, &$newCosts): ?float {
+                $average = StockService::replayAverageCost((int) $itemId, function (StockMovement $movement, float $average) use ($documentsById, $morph, $itemId, $originalLines, &$newCosts): ?float {
                     if ($movement->source_type !== $morph || ! $documentsById->has($movement->source_id)) {
                         return null;
                     }
@@ -79,7 +83,11 @@ class InvoiceCostService
 
                     if ($type->isReturn()) {
                         $originalCost = $document->original_document_id
-                            ? ($newCosts[$document->original_document_id] ?? static::lineCost($document->original_document_id, (int) $itemId))
+                            ? ($newCosts[$document->original_document_id] ?? SalesDocumentService::originalUnitCost(
+                                $originalLines->get($document->original_document_id, collect()),
+                                (int) $itemId,
+                                $movement->item_batch_id,
+                            ))
                             : null;
                         $cost = $originalCost ?: $average;
                     } else {
@@ -105,11 +113,14 @@ class InvoiceCostService
                 Item::query()->whereKey($itemId)->update(['average_cost' => $average]);
             }
 
+            $costTotals = SalesDocumentLine::query()
+                ->whereIn('sales_document_id', $documentsById->keys())
+                ->groupBy('sales_document_id')
+                ->selectRaw('sales_document_id, SUM((quantity + free_qty) * unit_cost) as cost_total')
+                ->pluck('cost_total', 'sales_document_id');
+
             foreach ($documentsById->keys() as $documentId) {
-                $costTotal = (float) SalesDocumentLine::query()
-                    ->where('sales_document_id', $documentId)
-                    ->sum(DB::raw('(quantity + free_qty) * unit_cost'));
-                SalesDocument::query()->whereKey($documentId)->update(['cost_total' => round($costTotal, 2)]);
+                SalesDocument::query()->whereKey($documentId)->update(['cost_total' => round((float) ($costTotals[$documentId] ?? 0), 2)]);
             }
         });
 
@@ -135,10 +146,16 @@ class InvoiceCostService
             ->whereNotNull('journal_entry_id')
             ->get();
 
-        DB::transaction(function () use ($documents, $cogs, $inventory, &$count) {
+        $entries = JournalEntry::query()
+            ->with('lines')
+            ->whereIn('id', $documents->pluck('journal_entry_id'))
+            ->get()
+            ->keyBy('id');
+
+        DB::transaction(function () use ($documents, $entries, $cogs, $inventory, &$count) {
             foreach ($documents as $document) {
                 /** @var JournalEntry|null $entry */
-                $entry = JournalEntry::query()->with('lines')->find($document->journal_entry_id);
+                $entry = $entries->get($document->journal_entry_id);
                 if (! $entry) {
                     continue;
                 }
@@ -175,13 +192,6 @@ class InvoiceCostService
             ->whereDate('date', '>=', $from)
             ->whereDate('date', '<=', $to)
             ->when($branchId, fn (Builder $q) => $q->where('branch_id', $branchId));
-    }
-
-    protected static function lineCost(int $documentId, int $itemId): ?float
-    {
-        $cost = SalesDocumentLine::query()->where('sales_document_id', $documentId)->where('item_id', $itemId)->value('unit_cost');
-
-        return $cost !== null ? (float) $cost : null;
     }
 
     /** @return Collection<int, string> */

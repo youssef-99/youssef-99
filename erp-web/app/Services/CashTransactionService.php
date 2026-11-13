@@ -23,13 +23,11 @@ class CashTransactionService
         }
 
         if ($return instanceof PurchaseDocument) {
-            $available = PurchaseDocumentService::returnableQuantities($original);
-            foreach ($original->lines as $line) {
-                $qty = min((float) $line->quantity, (float) ($available[$line->item_id] ?? 0));
-                if ($qty > 0) {
-                    $return->lines()->create(['quantity' => $qty] + $line->only(['item_id', 'unit_id', 'batch_no', 'expiry_date', 'unit_price', 'discount_percent', 'discount2_percent', 'tax_percent']));
-                }
+            $rows = PurchaseDocumentService::returnLinesFor($original);
+            foreach ($rows as $row) {
+                $return->lines()->create($row);
             }
+            $return->forceFill(['additional_discount' => PurchaseDocumentService::returnAdditionalDiscount($original, $rows)])->saveQuietly();
             PurchaseDocumentService::recalculate($return->refresh());
 
             return;

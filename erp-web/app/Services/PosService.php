@@ -78,6 +78,7 @@ class PosService
         }
 
         $doc = DB::transaction(function () use ($doc) {
+            PostingLock::lock($doc, expectPosted: false);
             static::recalculate($doc);
             $isReturn = $doc->type === SalesDocumentType::PosReturn->value;
 
@@ -115,6 +116,7 @@ class PosService
         }
 
         return DB::transaction(function () use ($doc) {
+            PostingLock::lock($doc, expectPosted: true);
             SalesDocumentService::unpost($doc);
 
             return $doc->refresh();

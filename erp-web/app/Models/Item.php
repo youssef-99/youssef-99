@@ -106,6 +106,12 @@ class Item extends Model
         return $this->item_type === 'batch_expiry';
     }
 
+    /** Service items (خدمة) carry no stock, so they have no inventory value and no cost of sales. */
+    public function isService(): bool
+    {
+        return $this->item_nature === 'service' || $this->item_type === 'service';
+    }
+
     public function isSerialTracked(): bool
     {
         return $this->item_type === 'serial';

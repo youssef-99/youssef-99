@@ -6,6 +6,7 @@ use App\Enums\SalesDocumentType;
 use App\Exceptions\ErpException;
 use App\Models\Item;
 use App\Models\SalesDocument;
+use App\Models\SalesDocumentLine;
 use App\Models\Warehouse;
 use App\Services\Calc\DocumentCalculator;
 use App\Services\Zatca\ZatcaNoteService;
@@ -83,20 +84,34 @@ class SalesDocumentService
         }
 
         if ($type->isNote()) {
-            return ZatcaNoteService::post($doc);
+            return DB::transaction(function () use ($doc) {
+                PostingLock::lock($doc, expectPosted: false);
+
+                return ZatcaNoteService::post($doc);
+            });
         }
 
         if (! $type->isPostable()) {
             // Quotations are confirmed and customer orders are submitted for approval: no stock or journal.
-            if ($doc->lines()->doesntExist()) {
-                throw new ErpException(__('The document has no items.'));
-            }
-            $doc->forceFill(['is_posted' => true, 'posted_at' => now(), 'status' => 'confirmed'])->save();
+            return DB::transaction(function () use ($doc) {
+                PostingLock::lock($doc, expectPosted: false);
+                if ($doc->lines()->doesntExist()) {
+                    throw new ErpException(__('The document has no items.'));
+                }
+                $doc->forceFill(['is_posted' => true, 'posted_at' => now(), 'status' => 'confirmed'])->save();
 
-            return $doc;
+                return $doc;
+            });
         }
 
         $doc = DB::transaction(function () use ($doc, $type) {
+            PostingLock::lock($doc, expectPosted: false);
+
+            $isReturnAgainstInvoice = $type->isReturn() && $doc->original_document_id;
+            if ($isReturnAgainstInvoice) {
+                static::applyOriginalTerms($doc);
+            }
+
             static::recalculate($doc);
             $doc->load('lines.item.category', 'customer', 'originalDocument.lines');
 
@@ -104,7 +119,7 @@ class SalesDocumentService
                 throw new ErpException(__('The document has no items.'));
             }
 
-            if ($type->isReturn() && ! $type->isNote() && $doc->original_document_id) {
+            if ($isReturnAgainstInvoice) {
                 static::assertReturnable($doc);
             }
 
@@ -117,9 +132,10 @@ class SalesDocumentService
                 $item = $line->item;
                 $qty = (float) $line->quantity + (float) $line->free_qty;
 
-                if ($type->isReturn() && $doc->originalDocument) {
-                    $orig = $doc->originalDocument->lines->firstWhere('item_id', $item->id);
-                    $unitCost = (float) ($orig?->unit_cost ?: StockService::unitCost($item));
+                if ($item->isService()) {
+                    $unitCost = 0.0;
+                } elseif ($type->isReturn() && $doc->originalDocument) {
+                    $unitCost = static::originalUnitCost($doc->originalDocument->lines, (int) $line->item_id, $line->item_batch_id) ?: StockService::unitCost($item);
                 } else {
                     $unitCost = StockService::unitCost($item);
                 }
@@ -164,7 +180,11 @@ class SalesDocumentService
     public static function unpost(SalesDocument $doc): SalesDocument
     {
         if (SalesDocumentType::tryFrom((string) $doc->type)?->isNote()) {
-            return ZatcaNoteService::unpost($doc);
+            return DB::transaction(function () use ($doc) {
+                PostingLock::lock($doc, expectPosted: true);
+
+                return ZatcaNoteService::unpost($doc);
+            });
         }
 
         ZatcaService::assertCanUnpost($doc);
@@ -178,6 +198,8 @@ class SalesDocumentService
         }
 
         return DB::transaction(function () use ($doc) {
+            PostingLock::lock($doc, expectPosted: true);
+
             if ($doc->type === SalesDocumentType::CustomerOrder->value) {
                 $doc->lines()->update(['approved_qty' => null]);
                 $doc->forceFill(['rejection_reason' => null, 'approved_by' => null, 'approved_at' => null]);
@@ -192,17 +214,117 @@ class SalesDocumentService
     }
 
     /**
+     * A return refunds what was charged: each line takes the unit price, discount and VAT of the
+     * matching original invoice line (same item and batch, else same item), and the promotional
+     * free units of the original are returned in proportion to the paid quantity returned.
+     */
+    public static function applyOriginalTerms(SalesDocument $return): void
+    {
+        $original = SalesDocument::query()->with('lines')->find($return->original_document_id);
+        if (! $original) {
+            return;
+        }
+
+        $returnable = static::returnableQuantities($original, $return->id);
+        /** @var array<int, float> $returnedNow paid quantity of this return so far, per item */
+        $returnedNow = [];
+        /** @var array<int, float> $freeNow free quantity of this return so far, per item */
+        $freeNow = [];
+
+        foreach ($return->lines()->orderBy('id')->get() as $line) {
+            $source = static::matchOriginalLine($original->lines, (int) $line->item_id, $line->item_batch_id);
+            if (! $source) {
+                continue;
+            }
+
+            $line->fill($source->only(['unit_price', 'discount_percent', 'tax_percent']));
+            if ((float) $source->discount_percent <= 0) {
+                $line->discount = (float) $source->quantity > 0
+                    ? round((float) $source->discount * (float) $line->quantity / (float) $source->quantity, 2)
+                    : 0;
+            }
+
+            $itemId = (int) $line->item_id;
+            $row = $returnable[$itemId] ?? null;
+            $free = 0.0;
+            if ($row && $row['sold'] > 0 && $row['free_sold'] > 0) {
+                $returnedNow[$itemId] = ($returnedNow[$itemId] ?? 0.0) + (float) $line->quantity;
+                $paidReturned = min($row['sold'], $row['returned'] + $returnedNow[$itemId]);
+                $freeDue = round($row['free_sold'] * $paidReturned / $row['sold'], 3);
+                $free = max(0.0, round($freeDue - $row['free_returned'] - ($freeNow[$itemId] ?? 0.0), 3));
+                $freeNow[$itemId] = ($freeNow[$itemId] ?? 0.0) + $free;
+            }
+            $line->free_qty = $free;
+
+            if ($line->isDirty()) {
+                $line->save();
+            }
+        }
+
+        $return->unsetRelation('lines');
+    }
+
+    /**
+     * The original invoice line a return line refunds: same item and batch, else the first line of the item.
+     *
+     * @param  iterable<SalesDocumentLine>  $lines
+     */
+    public static function matchOriginalLine(iterable $lines, int $itemId, int|string|null $batchId): ?SalesDocumentLine
+    {
+        $fallback = null;
+        foreach ($lines as $candidate) {
+            if ((int) $candidate->item_id !== $itemId) {
+                continue;
+            }
+            if ((int) $candidate->item_batch_id === (int) $batchId) {
+                return $candidate;
+            }
+            $fallback ??= $candidate;
+        }
+
+        return $fallback;
+    }
+
+    /**
+     * Unit cost a returned line comes back at: the cost of the original line with the same item and
+     * batch, else the quantity-weighted cost of every original line of the item.
+     *
+     * @param  iterable<SalesDocumentLine>  $originalLines
+     */
+    public static function originalUnitCost(iterable $originalLines, int $itemId, int|string|null $batchId): float
+    {
+        $quantity = $value = 0.0;
+        foreach ($originalLines as $candidate) {
+            if ((int) $candidate->item_id !== $itemId) {
+                continue;
+            }
+            if ($batchId && (int) $candidate->item_batch_id === (int) $batchId && (float) $candidate->unit_cost > 0) {
+                return (float) $candidate->unit_cost;
+            }
+            $qty = (float) $candidate->quantity + (float) $candidate->free_qty;
+            $quantity += $qty;
+            $value += $qty * (float) $candidate->unit_cost;
+        }
+
+        return $quantity > 0 ? round($value / $quantity, 4) : 0.0;
+    }
+
+    /**
      * Quantity still returnable per item of an original invoice: sold quantity minus the quantities
      * of its posted returns (optionally ignoring one return, e.g. the one being edited).
      *
-     * @return array<int, array{sold: float, returned: float, available: float}> keyed by item id
+     * Promotional free units are tracked alongside (free_sold / free_returned): they follow the paid
+     * quantity back in proportion (see applyOriginalTerms()).
+     *
+     * @return array<int, array{sold: float, returned: float, available: float, free_sold: float, free_returned: float}> keyed by item id
      */
     public static function returnableQuantities(SalesDocument $original, ?int $exceptReturnId = null): array
     {
         $result = [];
         foreach ($original->lines()->get() as $line) {
-            $result[$line->item_id] ??= ['sold' => 0.0, 'returned' => 0.0, 'available' => 0.0];
+            $result[$line->item_id] ??= ['sold' => 0.0, 'returned' => 0.0, 'available' => 0.0, 'free_sold' => 0.0, 'free_returned' => 0.0];
             $result[$line->item_id]['sold'] += (float) $line->quantity;
+            $result[$line->item_id]['free_sold'] += (float) $line->free_qty;
         }
 
         $returnType = SalesDocumentType::tryFrom((string) $original->type)?->returnType();
@@ -214,11 +336,13 @@ class SalesDocumentService
             ->when($exceptReturnId, fn ($q, $id) => $q->whereKeyNot($id))
             ->join('sales_document_lines', 'sales_document_lines.sales_document_id', '=', 'sales_documents.id')
             ->groupBy('sales_document_lines.item_id')
-            ->selectRaw('sales_document_lines.item_id as item_id, SUM(sales_document_lines.quantity) as qty')
-            ->pluck('qty', 'item_id');
+            ->selectRaw('sales_document_lines.item_id as item_id, SUM(sales_document_lines.quantity) as qty, SUM(sales_document_lines.free_qty) as free_qty')
+            ->get()
+            ->keyBy('item_id');
 
         foreach ($result as $itemId => $row) {
-            $result[$itemId]['returned'] = round((float) ($returned[$itemId] ?? 0), 3);
+            $result[$itemId]['returned'] = round((float) ($returned[$itemId]->qty ?? 0), 3);
+            $result[$itemId]['free_returned'] = round((float) ($returned[$itemId]->free_qty ?? 0), 3);
             $result[$itemId]['available'] = round(max(0, $row['sold'] - $result[$itemId]['returned']), 3);
         }
 
@@ -340,11 +464,24 @@ class SalesDocumentService
         $lines = [];
         $desc = $type->label().' #'.$doc->number;
 
-        // Debit side: customer account, or cash / card for POS & cash sales.
-        if ($type->isPos() || $type->isCash() || in_array($doc->payment_method, ['cash', 'card', 'mixed'], true)) {
-            $card = round((float) $doc->card_amount, 2);
-            $card = min($card, (float) $doc->grand_total);
-            $cash = round((float) $doc->grand_total - $card, 2);
+        // Debit side: customer account, or cash / card. POS (and mixed payments) split by the card
+        // amount; other documents go wholly to the card account (card), the cash account (cash and
+        // cash sales) or the customer (credit).
+        $grandTotal = round((float) $doc->grand_total, 2);
+        $method = (string) $doc->payment_method;
+        $card = $cash = null;
+        if ($type->isPos() || $method === 'mixed') {
+            $card = min(round((float) $doc->card_amount, 2), $grandTotal);
+            $cash = round($grandTotal - $card, 2);
+        } elseif ($method === 'card') {
+            $card = $grandTotal;
+            $cash = 0.0;
+        } elseif ($type->isCash() || $method === 'cash') {
+            $card = 0.0;
+            $cash = $grandTotal;
+        }
+
+        if ($card !== null) {
             if ($card > 0) {
                 $lines[] = static::side(Settings::accountOrFail('card'), $sign * $card, $desc);
             }

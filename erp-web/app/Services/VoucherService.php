@@ -61,6 +61,7 @@ class VoucherService
         $type = VoucherType::from($voucher->type);
 
         return DB::transaction(function () use ($voucher, $type) {
+            PostingLock::lock($voucher, expectPosted: false);
             static::recalculate($voucher);
 
             if ($voucher->lines->isEmpty() || (float) $voucher->amount <= 0) {
@@ -98,10 +99,13 @@ class VoucherService
             throw new ErpException(__('Some cheques in this voucher were already collected.'));
         }
 
-        JournalService::removeFor($voucher);
-        $voucher->forceFill(['is_posted' => false, 'posted_at' => null, 'journal_entry_id' => null])->saveQuietly();
+        return DB::transaction(function () use ($voucher): Voucher {
+            PostingLock::lock($voucher, expectPosted: true);
+            JournalService::removeFor($voucher);
+            $voucher->forceFill(['is_posted' => false, 'posted_at' => null, 'journal_entry_id' => null])->saveQuietly();
 
-        return $voucher;
+            return $voucher;
+        });
     }
 
     /** Cheques under collection, due in the collection period, for the branch. */
@@ -112,7 +116,8 @@ class VoucherService
             ->whereHas('voucher', fn ($q) => $q->where('type', VoucherType::ReceiptCheque->value)->where('branch_id', $branchId)->where('is_posted', true))
             ->where('cheque_status', 'under_collection')
             ->whereNull('cheque_collection_id')
-            ->whereBetween('due_date', [$from, $to])
+            ->whereDate('due_date', '>=', Carbon::parse($from)->toDateString())
+            ->whereDate('due_date', '<=', Carbon::parse($to)->toDateString())
             ->orderBy('due_date')
             ->get();
     }
@@ -129,6 +134,7 @@ class VoucherService
         }
 
         return DB::transaction(function () use ($collection, $lineIds) {
+            PostingLock::lock($collection, expectPosted: false);
             $cheques = static::collectableCheques($collection->branch_id, $collection->from_date->toDateString(), $collection->to_date->toDateString());
             if ($lineIds !== null) {
                 $cheques = $cheques->whereIn('id', $lineIds);
@@ -146,7 +152,14 @@ class VoucherService
             }
 
             $entry = JournalService::record($collection, 'cheque_collection', $collection->branch_id, $collection->date, $lines, $desc);
-            VoucherLine::query()->whereIn('id', $cheques->pluck('id'))->update(['cheque_status' => 'collected', 'cheque_collection_id' => $collection->id]);
+            $claimed = VoucherLine::query()
+                ->whereIn('id', $cheques->pluck('id'))
+                ->whereNull('cheque_collection_id')
+                ->where('cheque_status', 'under_collection')
+                ->update(['cheque_status' => 'collected', 'cheque_collection_id' => $collection->id]);
+            if ($claimed !== $cheques->count()) {
+                throw new ErpException(__('Some of these cheques were collected by another document. Reload and try again.'));
+            }
             $collection->forceFill(['total' => $total, 'is_posted' => true, 'posted_at' => now(), 'journal_entry_id' => $entry->id])->saveQuietly();
 
             return $collection;
@@ -157,6 +170,7 @@ class VoucherService
     public static function unpostCollection(ChequeCollection $collection): ChequeCollection
     {
         return DB::transaction(function () use ($collection): ChequeCollection {
+            PostingLock::lock($collection, expectPosted: true);
             JournalService::removeFor($collection);
             VoucherLine::query()->where('cheque_collection_id', $collection->id)->update(['cheque_status' => 'under_collection', 'cheque_collection_id' => null]);
             $collection->forceFill(['is_posted' => false, 'posted_at' => null, 'journal_entry_id' => null])->saveQuietly();

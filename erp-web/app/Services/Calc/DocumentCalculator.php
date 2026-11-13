@@ -11,7 +11,8 @@ namespace App\Services\Calc;
  * Purchase line: same, plus a second discount (discount2) applied after the first, and
  *                unit_net = taxable / (qty + bonus_qty).
  * Document:      additional discount (fixed or %) is a document-level allowance that reduces the
- *                taxable base proportionally (ZATCA-compliant), so tax_total is recomputed after it.
+ *                taxable base proportionally (ZATCA-compliant); tax_total is computed per VAT rate
+ *                after it (see vatGroups()), exactly like the ZATCA XML / QR amounts.
  */
 class DocumentCalculator
 {
@@ -62,6 +63,43 @@ class DocumentCalculator
     }
 
     /**
+     * VAT per rate, the way the ZATCA invoice XML computes it (UblInvoiceBuilder::breakdown()): the
+     * additional discount is split over the rate groups in proportion to their line totals (rounded,
+     * the last group taking the remainder), then tax = round(group taxable x rate / 100, 2).
+     * Per-line tax stays round(line taxable x rate / 100, 2) for display only.
+     *
+     * @param  array<array-key, array>  $calculatedLines  lines with 'taxable' and 'tax_percent'
+     * @return array<string, array{rate: float, line_total: float, allowance: float, taxable: float, tax: float}> keyed by rate
+     */
+    public static function vatGroups(array $calculatedLines, float $additionalDiscount = 0): array
+    {
+        $groups = [];
+        foreach ($calculatedLines as $line) {
+            $rate = static::num($line['tax_percent'] ?? 0);
+            $key = (string) round($rate, 4);
+            $groups[$key] ??= ['rate' => $rate, 'line_total' => 0.0, 'allowance' => 0.0, 'taxable' => 0.0, 'tax' => 0.0];
+            $groups[$key]['line_total'] = static::round($groups[$key]['line_total'] + static::num($line['taxable'] ?? 0));
+        }
+
+        $lineTotal = static::round(array_sum(array_column($groups, 'line_total')));
+        $allowanceTotal = static::round(min($additionalDiscount, $lineTotal));
+        $remaining = $allowanceTotal;
+        $keys = array_keys($groups);
+
+        foreach ($keys as $n => $key) {
+            $share = $n === count($keys) - 1
+                ? $remaining
+                : static::round($lineTotal > 0 ? $allowanceTotal * $groups[$key]['line_total'] / $lineTotal : 0);
+            $remaining = static::round($remaining - $share);
+            $groups[$key]['allowance'] = $share;
+            $groups[$key]['taxable'] = static::round($groups[$key]['line_total'] - $share);
+            $groups[$key]['tax'] = static::round($groups[$key]['taxable'] * $groups[$key]['rate'] / 100);
+        }
+
+        return $groups;
+    }
+
+    /**
      * @param  array<int, array>  $lines  raw lines (will be recalculated)
      * @return array{lines: array, gross_total: float, items_discount: float, additional_discount: float, net_total: float, tax_total: float, grand_total: float}
      */
@@ -80,12 +118,11 @@ class DocumentCalculator
 
         $pct = static::num($additionalDiscountPercent);
         $addDiscount = $pct > 0 ? static::round($taxable * $pct / 100) : static::num($additionalDiscount);
-        $addDiscount = min($addDiscount, $taxable);
-        $factor = $taxable > 0 ? ($taxable - $addDiscount) / $taxable : 0;
+        $addDiscount = static::round(min($addDiscount, static::round($taxable)));
 
         $tax = 0.0;
-        foreach ($calculated as $c) {
-            $tax += static::round($c['taxable'] * $factor * static::num($c['tax_percent'] ?? 0) / 100);
+        foreach (static::vatGroups($calculated, $addDiscount) as $group) {
+            $tax += $group['tax'];
         }
 
         $net = static::round($taxable - $addDiscount);

@@ -111,6 +111,7 @@ class FinancingContractService
         }
 
         return DB::transaction(function () use ($contract): FinancingContract {
+            PostingLock::lock($contract, expectPosted: false);
             if ($contract->installments()->doesntExist()) {
                 static::recalculate($contract);
             }
@@ -137,10 +138,13 @@ class FinancingContractService
             throw new ErpException(__('Some installments of this contract were already paid.'));
         }
 
-        JournalService::removeFor($contract);
-        $contract->forceFill(['is_posted' => false, 'posted_at' => null, 'journal_entry_id' => null])->saveQuietly();
+        return DB::transaction(function () use ($contract): FinancingContract {
+            PostingLock::lock($contract, expectPosted: true);
+            JournalService::removeFor($contract);
+            $contract->forceFill(['is_posted' => false, 'posted_at' => null, 'journal_entry_id' => null])->saveQuietly();
 
-        return $contract;
+            return $contract;
+        });
     }
 
     /** Pay an installment from a cash/bank account: Dr loan account, Cr payment account. */
@@ -160,6 +164,7 @@ class FinancingContractService
         $desc = __('Installment :sequence of financing contract #:number', ['sequence' => $installment->sequence, 'number' => $contract->number]);
 
         return DB::transaction(function () use ($installment, $contract, $paymentAccountId, $date, $desc): FinancingInstallment {
+            PostingLock::lock($installment, expectPosted: false, column: 'is_paid');
             $entry = JournalService::append($contract, 'financing_installment', static::branchId($contract), $date, [
                 SalesDocumentService::side($contract->loan_account_id, (float) $installment->amount, $desc),
                 SalesDocumentService::side($paymentAccountId, -(float) $installment->amount, $desc),
@@ -179,6 +184,7 @@ class FinancingContractService
     public static function cancelInstallmentPayment(FinancingInstallment $installment): FinancingInstallment
     {
         return DB::transaction(function () use ($installment): FinancingInstallment {
+            PostingLock::lock($installment, expectPosted: true, column: 'is_paid');
             $installment->journalEntry?->delete();
             $installment->forceFill(['is_paid' => false, 'paid_at' => null, 'payment_account_id' => null, 'journal_entry_id' => null])->save();
 

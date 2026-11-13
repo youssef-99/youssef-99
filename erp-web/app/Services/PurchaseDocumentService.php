@@ -91,6 +91,7 @@ class PurchaseDocumentService
         }
 
         return DB::transaction(function () use ($doc, $type) {
+            PostingLock::lock($doc, expectPosted: false);
             static::recalculate($doc);
             $doc->load('lines.item', 'supplier', 'accreditation');
 
@@ -104,10 +105,13 @@ class PurchaseDocumentService
 
             $warehouseId = $doc->warehouse_id ?? throw new ErpException(__('Select a warehouse.'));
             $rate = (float) ($doc->exchange_rate ?: 1);
-            $extra = ((float) $doc->shipping_cost + (float) $doc->purchase_expenses) * $rate;
-            $taxableSum = max(0.01, (float) $doc->lines->sum(fn ($l) => (float) $l->gross - (float) $l->discount - (float) $l->discount2));
-            $docDiscountFactor = (float) $doc->net_total / $taxableSum;
             $direction = $type->stockDirection();
+            $landed = static::landedLineCosts($doc);
+            $original = $type->isReturn() && $doc->original_document_id
+                ? PurchaseDocument::query()->with('lines')->find($doc->original_document_id)
+                : null;
+            $originalCosts = $original ? static::landedLineCosts($original) : [];
+            $values = ['stock' => 0.0, 'service' => 0.0];
 
             foreach ($doc->lines as $line) {
                 $item = $line->item;
@@ -117,11 +121,19 @@ class PurchaseDocumentService
                 $line->item_batch_id = $batch?->id;
                 $line->saveQuietly();
 
-                $lineTaxable = (float) $line->gross - (float) $line->discount - (float) $line->discount2;
-                $share = $lineTaxable / $taxableSum;
-                $lineCostLocal = $lineTaxable * $docDiscountFactor * $rate + $extra * $share;
                 $qty = (float) $line->quantity + (float) $line->bonus_qty;
-                $unitCost = $qty > 0 ? $lineCostLocal / $qty : 0;
+                $unitCost = $landed[$line->id]['unit_cost'];
+
+                if ($item->isService()) {
+                    $values['service'] += $landed[$line->id]['cost'];
+                } elseif ($type->isReturn()) {
+                    // Stock leaves at what it cost when it came in (expense share and bonus included).
+                    $unitCost = ($original ? static::originalLandedUnitCost($original, $originalCosts, $line) : 0.0)
+                        ?: StockService::unitCost($item);
+                    $values['stock'] += $qty * $unitCost;
+                } else {
+                    $values['stock'] += $landed[$line->id]['cost'];
+                }
 
                 StockService::move($doc, $type->value, $item, $doc->branch_id, $warehouseId, $doc->date, $direction * $qty, $unitCost, $batch?->id, allowNegative: (bool) config('erp.allow_negative_stock', true));
 
@@ -133,7 +145,7 @@ class PurchaseDocumentService
                 static::syncSerialNumbers($doc, $line, $type, $warehouseId);
             }
 
-            $entry = JournalService::record($doc, $type->isReturn() ? 'purchase_return' : 'purchase', $doc->branch_id, $doc->date, static::journalLines($doc, $type), $type->label().' #'.$doc->number);
+            $entry = JournalService::record($doc, $type->isReturn() ? 'purchase_return' : 'purchase', $doc->branch_id, $doc->date, static::journalLines($doc, $type, $values), $type->label().' #'.$doc->number);
 
             $doc->forceFill(['is_posted' => true, 'posted_at' => now(), 'status' => 'approved', 'journal_entry_id' => $entry->id])->saveQuietly();
 
@@ -150,6 +162,7 @@ class PurchaseDocumentService
         }
 
         return DB::transaction(function () use ($doc, $type) {
+            PostingLock::lock($doc, expectPosted: true);
             StockService::removeFor($doc);
             JournalService::removeFor($doc);
             static::releaseSerialNumbers($doc, $type);
@@ -160,32 +173,151 @@ class PurchaseDocumentService
     }
 
     /**
-     * Quantities (qty + bonus) per item still returnable from an invoice, excluding $exceptReturnId.
+     * Landed cost of each line in local currency: line taxable after all discounts (including the
+     * document's additional discount) plus its share of shipping and purchase expenses, and the unit
+     * cost = that cost / (quantity + bonus).
      *
-     * @return array<int, float> item_id => quantity
+     * @return array<int, array{cost: float, unit_cost: float}> keyed by line id
      */
-    public static function returnableQuantities(PurchaseDocument $invoice, ?int $exceptReturnId = null): array
+    public static function landedLineCosts(PurchaseDocument $doc): array
+    {
+        $rate = (float) ($doc->exchange_rate ?: 1);
+        $extra = ((float) $doc->shipping_cost + (float) $doc->purchase_expenses) * $rate;
+        $taxableSum = max(0.01, (float) $doc->lines->sum(fn ($l) => (float) $l->gross - (float) $l->discount - (float) $l->discount2));
+        $docDiscountFactor = (float) $doc->net_total / $taxableSum;
+
+        $result = [];
+        foreach ($doc->lines as $line) {
+            $lineTaxable = (float) $line->gross - (float) $line->discount - (float) $line->discount2;
+            $cost = $lineTaxable * $docDiscountFactor * $rate + $extra * ($lineTaxable / $taxableSum);
+            $qty = (float) $line->quantity + (float) $line->bonus_qty;
+            $result[$line->id] = ['cost' => $cost, 'unit_cost' => $qty > 0 ? $cost / $qty : 0.0];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Landed unit cost of the original invoice line a return line gives back: the line with the same
+     * item and batch, else the quantity-weighted cost of the item's lines.
+     *
+     * @param  array<int, array{cost: float, unit_cost: float}>  $originalCosts
+     */
+    protected static function originalLandedUnitCost(PurchaseDocument $original, array $originalCosts, PurchaseDocumentLine $line): float
+    {
+        $quantity = $value = 0.0;
+        foreach ($original->lines as $candidate) {
+            if ((int) $candidate->item_id !== (int) $line->item_id) {
+                continue;
+            }
+            $sameBatch = $line->item_batch_id
+                ? (int) $candidate->item_batch_id === (int) $line->item_batch_id
+                : filled($line->batch_no) && $candidate->batch_no === $line->batch_no;
+            if ($sameBatch && ($originalCosts[$candidate->id]['unit_cost'] ?? 0) > 0) {
+                return $originalCosts[$candidate->id]['unit_cost'];
+            }
+            $quantity += (float) $candidate->quantity + (float) $candidate->bonus_qty;
+            $value += $originalCosts[$candidate->id]['cost'] ?? 0.0;
+        }
+
+        return $quantity > 0 ? $value / $quantity : 0.0;
+    }
+
+    /**
+     * Paid quantity and bonus per item still returnable from an invoice, excluding $exceptReturnId.
+     * Bonus units are tracked apart so a return cannot refund free units as paid ones.
+     *
+     * @return array<int, array{quantity: float, bonus: float}> item_id => remaining paid quantity / bonus
+     */
+    public static function returnableDetail(PurchaseDocument $invoice, ?int $exceptReturnId = null): array
     {
         $received = [];
         foreach ($invoice->lines()->get() as $line) {
-            $received[$line->item_id] = ($received[$line->item_id] ?? 0) + (float) $line->quantity + (float) $line->bonus_qty;
+            $received[$line->item_id] ??= ['quantity' => 0.0, 'bonus' => 0.0];
+            $received[$line->item_id]['quantity'] += (float) $line->quantity;
+            $received[$line->item_id]['bonus'] += (float) $line->bonus_qty;
         }
 
         $returned = PurchaseDocumentLine::query()
             ->whereHas('purchaseDocument', fn ($q) => $q->where('original_document_id', $invoice->id)->where('is_posted', true)
                 ->when($exceptReturnId, fn ($q, $id) => $q->whereKeyNot($id)))
             ->get()
-            ->groupBy('item_id')
-            ->map(fn ($lines) => $lines->sum(fn ($l) => (float) $l->quantity + (float) $l->bonus_qty));
+            ->groupBy('item_id');
 
-        foreach ($received as $itemId => $qty) {
-            $received[$itemId] = round($qty - (float) ($returned[$itemId] ?? 0), 3);
+        foreach ($received as $itemId => $row) {
+            $lines = $returned->get($itemId, collect());
+            $received[$itemId] = [
+                'quantity' => round($row['quantity'] - (float) $lines->sum(fn ($l) => (float) $l->quantity), 3),
+                'bonus' => round($row['bonus'] - (float) $lines->sum(fn ($l) => (float) $l->bonus_qty), 3),
+            ];
         }
 
         return $received;
     }
 
-    /** A return against an invoice cannot return items that were not received, or more than received. */
+    /**
+     * Paid quantity per item still returnable from an invoice, excluding $exceptReturnId.
+     *
+     * @return array<int, float> item_id => quantity
+     */
+    public static function returnableQuantities(PurchaseDocument $invoice, ?int $exceptReturnId = null): array
+    {
+        return array_map(fn (array $row): float => $row['quantity'], static::returnableDetail($invoice, $exceptReturnId));
+    }
+
+    /**
+     * The still-returnable lines of an invoice as return line attributes (paid quantity and bonus
+     * kept apart, line by line in invoice order).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function returnLinesFor(PurchaseDocument $invoice): array
+    {
+        $available = static::returnableDetail($invoice);
+        $rows = [];
+        foreach ($invoice->lines()->orderBy('id')->get() as $line) {
+            $left = $available[$line->item_id] ?? ['quantity' => 0.0, 'bonus' => 0.0];
+            $qty = round(max(0, min((float) $line->quantity, $left['quantity'])), 3);
+            $bonus = round(max(0, min((float) $line->bonus_qty, $left['bonus'])), 3);
+            $available[$line->item_id] = ['quantity' => $left['quantity'] - $qty, 'bonus' => $left['bonus'] - $bonus];
+            if ($qty <= 0 && $bonus <= 0) {
+                continue;
+            }
+
+            $rows[] = $line->only(['item_id', 'unit_id', 'batch_no', 'unit_price', 'discount_percent', 'discount2_percent', 'tax_percent'])
+                + [
+                    'expiry_date' => $line->expiry_date?->toDateString(),
+                    'quantity' => $qty,
+                    'bonus_qty' => $bonus,
+                    'bonus_percent' => 0,
+                    'discount' => (float) $line->discount_percent > 0 || (float) $line->quantity <= 0 ? 0 : round((float) $line->discount * $qty / (float) $line->quantity, 2),
+                    'discount2' => (float) $line->discount2_percent > 0 || (float) $line->quantity <= 0 ? 0 : round((float) $line->discount2 * $qty / (float) $line->quantity, 2),
+                ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * The invoice's additional discount carried over to a return, in proportion to the returned
+     * taxable amount (the whole discount for a full return).
+     *
+     * @param  list<array<string, mixed>>  $returnLines
+     */
+    public static function returnAdditionalDiscount(PurchaseDocument $invoice, array $returnLines): float
+    {
+        $discount = (float) $invoice->additional_discount;
+        $invoiceTaxable = (float) $invoice->net_total + $discount;
+        if ($discount <= 0 || $invoiceTaxable <= 0) {
+            return 0.0;
+        }
+
+        $returnTaxable = array_sum(array_map(fn (array $row): float => DocumentCalculator::line($row)['taxable'], $returnLines));
+
+        return round(min($discount, $discount * $returnTaxable / $invoiceTaxable), 2);
+    }
+
+    /** A return against an invoice cannot return items that were not received, or more paid units / bonus than received. */
     public static function assertReturnable(PurchaseDocument $doc): void
     {
         if (! $doc->original_document_id) {
@@ -197,18 +329,25 @@ class PurchaseDocumentService
             throw new ErpException(__('The original invoice is not posted.'));
         }
 
-        $available = static::returnableQuantities($invoice, $doc->id);
+        $available = static::returnableDetail($invoice, $doc->id);
         $requested = [];
         foreach ($doc->lines as $line) {
-            $requested[$line->item_id] = ($requested[$line->item_id] ?? 0) + (float) $line->quantity + (float) $line->bonus_qty;
+            $requested[$line->item_id] ??= ['quantity' => 0.0, 'bonus' => 0.0];
+            $requested[$line->item_id]['quantity'] += (float) $line->quantity;
+            $requested[$line->item_id]['bonus'] += (float) $line->bonus_qty;
         }
 
-        foreach ($requested as $itemId => $qty) {
+        foreach ($requested as $itemId => $row) {
             $max = $available[$itemId] ?? null;
-            if ($max === null || $qty > $max + 0.0001) {
-                $item = $doc->lines->firstWhere('item_id', $itemId)?->item;
+            $label = fn () => $doc->lines->firstWhere('item_id', $itemId)?->item?->label ?? $itemId;
+            if ($max === null || $row['quantity'] > $max['quantity'] + 0.0001) {
                 throw new ErpException(__('Cannot return more than received for :item: returnable :available, requested :requested.', [
-                    'item' => $item?->label ?? $itemId, 'available' => max(0, (float) $max), 'requested' => $qty,
+                    'item' => $label(), 'available' => max(0, (float) ($max['quantity'] ?? 0)), 'requested' => $row['quantity'],
+                ]));
+            }
+            if ($row['bonus'] > $max['bonus'] + 0.0001) {
+                throw new ErpException(__('Cannot return more bonus than received for :item: returnable bonus :available, requested :requested.', [
+                    'item' => $label(), 'available' => max(0, $max['bonus']), 'requested' => $row['bonus'],
                 ]));
             }
         }
@@ -304,8 +443,16 @@ class PurchaseDocumentService
             ->delete();
     }
 
-    /** @return array<int, array> */
-    protected static function journalLines(PurchaseDocument $doc, PurchaseDocumentType $type): array
+    /**
+     * Invoice: Dr inventory (stock lines' landed cost), Dr purchased services expense (service lines),
+     * Dr input VAT, Cr supplier / L/C / cash, Cr expenses clearing (capitalised shipping and expenses).
+     * Return: Dr supplier, Cr input VAT, Cr inventory at the original landed cost, Cr services expense;
+     * the difference between the refund and the stock value goes to the purchase discount account.
+     *
+     * @param  array{stock: float, service: float}  $values  line values in local currency
+     * @return array<int, array>
+     */
+    protected static function journalLines(PurchaseDocument $doc, PurchaseDocumentType $type, array $values = ['stock' => 0.0, 'service' => 0.0]): array
     {
         $sign = $type->isReturn() ? -1 : 1;
         $rate = (float) ($doc->exchange_rate ?: 1);
@@ -313,11 +460,25 @@ class PurchaseDocumentService
         $extra = round(((float) $doc->shipping_cost + (float) $doc->purchase_expenses) * $rate, 2);
         $net = round((float) $doc->net_total * $rate, 2);
         $tax = round((float) $doc->tax_total * $rate, 2);
+        $service = round($values['service'], 2);
         $lines = [];
         $lcAccount = $doc->accreditation_id ? $doc->accreditation?->lc_account_id : null;
 
         $inventory = $doc->accreditation?->inventory_account_id ?: Settings::accountOrFail('inventory');
-        $lines[] = SalesDocumentService::side($inventory, $sign * ($net + $extra), $desc);
+        if ($type->isReturn()) {
+            $stock = round($values['stock'], 2);
+            $lines[] = SalesDocumentService::side($inventory, -($stock + $extra), $desc);
+            $difference = round($net - $stock - $service, 2);
+            if ($difference != 0.0) {
+                $lines[] = SalesDocumentService::side(static::returnDifferenceAccount($inventory), -$difference, $desc);
+            }
+        } else {
+            $lines[] = SalesDocumentService::side($inventory, round($net + $extra - $service, 2), $desc);
+        }
+
+        if ($service != 0.0) {
+            $lines[] = SalesDocumentService::side(static::serviceExpenseAccount(), $sign * $service, $desc);
+        }
 
         if ($tax > 0) {
             $lines[] = SalesDocumentService::side(Settings::accountOrFail('vat_input'), $sign * $tax, $desc);
@@ -336,6 +497,18 @@ class PurchaseDocumentService
             $lines[] = SalesDocumentService::side($expensesAccount, -$sign * $extra, $desc);
         }
 
-        return $lines;
+        return array_values(array_filter($lines, fn (array $line): bool => (float) $line['debit'] > 0 || (float) $line['credit'] > 0));
+    }
+
+    /** Purchased service lines are expensed: the services expense account, else cost of goods sold. */
+    public static function serviceExpenseAccount(): int
+    {
+        return Settings::account('service_expenses') ?? Settings::account('cogs') ?? Settings::accountOrFail('service_expenses');
+    }
+
+    /** Where a return's refund-vs-stock-value difference goes: purchase discount, else inventory adjustment, else inventory. */
+    protected static function returnDifferenceAccount(int $inventory): int
+    {
+        return Settings::account('purchase_discount') ?? Settings::account('inventory_adjustment') ?? $inventory;
     }
 }
