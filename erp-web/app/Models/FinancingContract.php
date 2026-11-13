@@ -2,10 +2,15 @@
 
 namespace App\Models;
 
+use App\Services\DocumentNumber;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * Murabaha financing contract (عقد تمويل مرابحة).
+ * `bank_profit_margin` is a percentage of the murabaha amount.
+ */
 class FinancingContract extends Model
 {
     protected $table = 'financing_contracts';
@@ -20,6 +25,8 @@ class FinancingContract extends Model
             'murabaha_amount' => 'decimal:2',
             'bank_profit_margin' => 'decimal:2',
             'installment_amount' => 'decimal:2',
+            'is_posted' => 'boolean',
+            'posted_at' => 'datetime',
         ];
     }
 
@@ -31,6 +38,16 @@ class FinancingContract extends Model
     public function loanAccount(): BelongsTo
     {
         return $this->belongsTo(Account::class, 'loan_account_id');
+    }
+
+    public function fundingAccount(): BelongsTo
+    {
+        return $this->belongsTo(Account::class, 'funding_account_id');
+    }
+
+    public function journalEntry(): BelongsTo
+    {
+        return $this->belongsTo(JournalEntry::class, 'journal_entry_id');
     }
 
     public function bank(): BelongsTo
@@ -46,5 +63,14 @@ class FinancingContract extends Model
     public function installments(): HasMany
     {
         return $this->hasMany(FinancingInstallment::class, 'financing_contract_id')->orderBy('sequence');
+    }
+
+    protected static function booted(): void
+    {
+        static::creating(function (FinancingContract $contract): void {
+            if (blank($contract->number)) {
+                $contract->number = DocumentNumber::nextCode(static::class, 'number');
+            }
+        });
     }
 }

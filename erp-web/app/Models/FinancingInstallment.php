@@ -25,4 +25,14 @@ class FinancingInstallment extends Model
     {
         return $this->belongsTo(FinancingContract::class, 'financing_contract_id');
     }
+
+    public function paymentAccount(): BelongsTo
+    {
+        return $this->belongsTo(Account::class, 'payment_account_id');
+    }
+
+    public function journalEntry(): BelongsTo
+    {
+        return $this->belongsTo(JournalEntry::class, 'journal_entry_id');
+    }
 }

@@ -3,7 +3,13 @@
 namespace App\Services;
 
 use App\Exceptions\ErpException;
+use App\Models\Account;
+use App\Models\CostCenter;
 use App\Models\JournalEntry;
+use App\Models\JournalEntryLine;
+use OpenSpout\Common\Entity\Cell;
+use OpenSpout\Reader\CSV\Reader as CsvReader;
+use OpenSpout\Reader\XLSX\Reader as XlsxReader;
 
 /**
  * Posting for manual journal vouchers (سندات القيد) entered by users.
@@ -22,7 +28,18 @@ class ManualJournalService
         }
 
         $entry->recalculate();
-        JournalService::assertBalanced($entry->lines->map(fn ($l) => $l->only(['account_id', 'debit', 'credit']))->all());
+
+        foreach ($entry->lines as $index => $line) {
+            if ((float) $line->debit > 0 && (float) $line->credit > 0) {
+                throw new ErpException(__('Line :line has both a debit and a credit amount.', ['line' => $index + 1]));
+            }
+        }
+
+        if ((float) $entry->total_debit <= 0) {
+            throw new ErpException(__('The entry has no lines.'));
+        }
+
+        JournalService::assertBalanced($entry->lines->map(fn (JournalEntryLine $l): array => $l->only(['account_id', 'debit', 'credit']))->all());
         $entry->forceFill(['is_posted' => true, 'posted_at' => now()])->saveQuietly();
 
         return $entry;
@@ -37,5 +54,92 @@ class ManualJournalService
         $entry->forceFill(['is_posted' => false, 'posted_at' => null])->saveQuietly();
 
         return $entry;
+    }
+
+    /**
+     * Read journal lines from an uploaded XLSX or CSV file.
+     * Columns: account no., debit, credit, description, cost center code. A first row whose
+     * debit/credit cells are not numeric is treated as a heading and skipped.
+     *
+     * @return array<int, array{account_id: int, debit: float, credit: float, description: ?string, cost_center_id: ?int}>
+     */
+    public static function importLines(string $path, ?string $extension = null): array
+    {
+        $extension = strtolower($extension ?? pathinfo($path, PATHINFO_EXTENSION));
+        $reader = match ($extension) {
+            'xlsx', 'zip' => new XlsxReader,
+            'csv', 'txt' => new CsvReader,
+            default => throw new ErpException(__('Upload an Excel (.xlsx) or CSV file.')),
+        };
+
+        $reader->open($path);
+        $rows = [];
+        foreach ($reader->getSheetIterator() as $sheet) {
+            foreach ($sheet->getRowIterator() as $row) {
+                $rows[] = array_map(fn (Cell $cell): mixed => $cell->getValue(), $row->getCells());
+            }
+            break;
+        }
+        $reader->close();
+
+        $accounts = Account::query()->pluck('id', 'number')->all();
+        $costCenters = CostCenter::query()->pluck('id', 'code')->all();
+        $lines = [];
+        $errors = [];
+
+        foreach ($rows as $index => $values) {
+            $values = array_pad(array_map(fn (mixed $v): string => trim((string) ($v instanceof \DateTimeInterface ? $v->format('Y-m-d') : $v)), $values), 5, '');
+            [$accountNo, $debit, $credit, $description, $costCenterCode] = $values;
+            $rowNo = $index + 1;
+
+            if ($accountNo === '' && $debit === '' && $credit === '') {
+                continue;
+            }
+
+            $isNumeric = fn (string $value): bool => $value === '' || is_numeric(str_replace(',', '', $value));
+            if (! $isNumeric($debit) || ! $isNumeric($credit)) {
+                if ($index === 0) {
+                    continue;
+                }
+                $errors[] = __('Row :row: the debit/credit amount is not a number.', ['row' => $rowNo]);
+
+                continue;
+            }
+
+            $accountId = $accounts[$accountNo] ?? null;
+            if (! $accountId) {
+                $errors[] = __('Row :row: account :account was not found.', ['row' => $rowNo, 'account' => $accountNo]);
+
+                continue;
+            }
+
+            $costCenterId = null;
+            if ($costCenterCode !== '') {
+                $costCenterId = $costCenters[$costCenterCode] ?? null;
+                if (! $costCenterId) {
+                    $errors[] = __('Row :row: cost center :code was not found.', ['row' => $rowNo, 'code' => $costCenterCode]);
+
+                    continue;
+                }
+            }
+
+            $lines[] = [
+                'account_id' => (int) $accountId,
+                'debit' => round((float) str_replace(',', '', $debit ?: '0'), 2),
+                'credit' => round((float) str_replace(',', '', $credit ?: '0'), 2),
+                'description' => $description !== '' ? $description : null,
+                'cost_center_id' => $costCenterId ? (int) $costCenterId : null,
+            ];
+        }
+
+        if ($errors) {
+            throw new ErpException(implode("\n", $errors));
+        }
+
+        if (! $lines) {
+            throw new ErpException(__('The file has no lines.'));
+        }
+
+        return $lines;
     }
 }

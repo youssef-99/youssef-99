@@ -23,6 +23,7 @@ class ChequeCollection extends Model
             'total' => 'decimal:2',
             'is_posted' => 'boolean',
             'posted_at' => 'datetime',
+            'cheque_line_ids' => 'array',
         ];
     }
 

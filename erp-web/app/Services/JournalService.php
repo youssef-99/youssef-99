@@ -70,6 +70,50 @@ class JournalService
         });
     }
 
+    /**
+     * Always create a new posted entry for a source (for sources that own several entries,
+     * e.g. a financing contract and its installment payments). record() keeps one entry per source.
+     *
+     * @param  array<int, array{account_id:int, debit?:float, credit?:float, description?:string, cost_center_id?:int, salesman_id?:int, accreditation_id?:int, document_no?:string, document_date?:string}>  $lines
+     */
+    public static function append(
+        Model $source,
+        string $entryType,
+        int $branchId,
+        CarbonInterface|string $date,
+        array $lines,
+        ?string $description = null,
+    ): JournalEntry {
+        $date = Carbon::parse($date);
+        $lines = static::normalize($lines);
+        static::assertBalanced($lines);
+
+        return DB::transaction(function () use ($source, $entryType, $branchId, $date, $lines, $description): JournalEntry {
+            $year = (int) $date->format('Y');
+            $entry = new JournalEntry([
+                'branch_id' => $branchId,
+                'fiscal_year' => $year,
+                'entry_type' => $entryType,
+                'number' => DocumentNumber::next("journal.{$entryType}", $branchId, $year),
+                'created_by' => auth()->id(),
+                'date' => $date,
+                'description' => $description,
+                'total_debit' => round(array_sum(array_column($lines, 'debit')), 2),
+                'total_credit' => round(array_sum(array_column($lines, 'credit')), 2),
+                'is_posted' => true,
+                'posted_at' => now(),
+            ]);
+            $entry->source()->associate($source);
+            $entry->save();
+
+            foreach (array_values($lines) as $i => $line) {
+                $entry->lines()->create($line + ['sort' => $i]);
+            }
+
+            return $entry;
+        });
+    }
+
     /** Delete the entry generated for a document (used when un-posting). */
     public static function removeFor(Model $source): void
     {
@@ -94,7 +138,7 @@ class JournalService
                 throw new ErpException(__('A journal line is missing its account.'));
             }
             $key = implode('|', [$line['account_id'], $line['cost_center_id'] ?? '', $line['salesman_id'] ?? '', $line['accreditation_id'] ?? '', $line['description'] ?? '']);
-            $grouped[$key] ??= $line + ['debit' => 0, 'credit' => 0];
+            $grouped[$key] ??= array_merge($line, ['debit' => 0, 'credit' => 0]);
             $grouped[$key]['debit'] = round(($grouped[$key]['debit'] ?? 0) + $debit, 2);
             $grouped[$key]['credit'] = round(($grouped[$key]['credit'] ?? 0) + $credit, 2);
         }

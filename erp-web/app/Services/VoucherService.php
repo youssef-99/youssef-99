@@ -152,4 +152,16 @@ class VoucherService
             return $collection;
         });
     }
+
+    /** Reverse a posted cheque collection: cheques go back to "under collection". */
+    public static function unpostCollection(ChequeCollection $collection): ChequeCollection
+    {
+        return DB::transaction(function () use ($collection): ChequeCollection {
+            JournalService::removeFor($collection);
+            VoucherLine::query()->where('cheque_collection_id', $collection->id)->update(['cheque_status' => 'under_collection', 'cheque_collection_id' => null]);
+            $collection->forceFill(['is_posted' => false, 'posted_at' => null, 'journal_entry_id' => null])->saveQuietly();
+
+            return $collection;
+        });
+    }
 }

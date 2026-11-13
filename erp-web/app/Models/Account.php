@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\HasBilingualName;
+use App\Services\AccountService;
 use App\Services\JournalService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -60,6 +61,7 @@ class Account extends Model
 
     protected static function booted(): void
     {
+        static::deleting(fn (Account $account) => AccountService::assertDeletable($account));
         static::saving(function (Account $account) {
             if ($account->parent_id && ! $account->isDirty('level')) {
                 $account->level = (int) ($account->parent?->level ?? 0) + 1;
