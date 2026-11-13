@@ -2,13 +2,15 @@
 # One-time Azure setup: an Ubuntu 24.04 VM with a public DNS name, SSH key login only and ports 80/443 open.
 #
 #   erp-web/deploy/azure-create-vm.sh <resource-group> <vm-name> <dns-label> [location] [size]
-#   erp-web/deploy/azure-create-vm.sh erp-rg erp-vm my-pharmacy-erp          # uaenorth, Standard_B1ms
+#   erp-web/deploy/azure-create-vm.sh erp-rg erp-vm my-pharmacy-erp          # uaenorth, Standard_B2ats_v2
 #   SSH_PUBLIC_KEY=~/.ssh/other.pub erp-web/deploy/azure-create-vm.sh ...     # another public key
 #
 # Needs the Azure CLI, logged in (az login). Safe to re-run: an existing group or VM is kept.
 # The site becomes https://<dns-label>.<location>.cloudapp.azure.com
 #   location  uaenorth (closest generally available region to Saudi Arabia); any region works
-#   size      Standard_B1ms (2 GB RAM). Standard_B1s (1 GB) also works thanks to the swap file.
+#   size      Standard_B2ats_v2 (2 vCPU, 1 GB RAM; the swap file covers it), or Standard_B2als_v2 (4 GB)
+#             for more room. Any x64 size works. New subscriptions cannot create the older B-series
+#             sizes (B1s, B1ms), so the script checks the size is available before creating anything.
 set -euo pipefail
 
 usage() {
@@ -28,21 +30,34 @@ RESOURCE_GROUP="$1"
 VM_NAME="$2"
 DNS_LABEL="$3"
 LOCATION="${4:-uaenorth}"
-SIZE="${5:-Standard_B1ms}"
+SIZE="${5:-Standard_B2ats_v2}"
 ADMIN_USER=azureuser
 IMAGE=Canonical:ubuntu-24_04-lts:server:latest
 
 [[ "$DNS_LABEL" =~ ^[a-z][a-z0-9-]{1,61}[a-z0-9]$ ]] \
   || die "dns-label must be 3-63 lowercase letters, digits or hyphens, starting with a letter"
+[[ "$LOCATION" =~ ^[a-z0-9]+$ ]] || die "location must be an Azure region name such as uaenorth"
+[[ "$SIZE" =~ ^Standard_[A-Za-z0-9_]+$ ]] || die "size must be an Azure VM size such as Standard_B2ats_v2"
 command -v az >/dev/null 2>&1 || die "install the Azure CLI first: https://learn.microsoft.com/cli/azure/install-azure-cli"
 az account show --output none 2>/dev/null || die "log in first: az login"
+
+VM_EXISTS=0
+if az vm show --resource-group "$RESOURCE_GROUP" --name "$VM_NAME" --output none 2>/dev/null; then
+  VM_EXISTS=1
+else
+  # Before creating anything: is the size available to this subscription in this region? Restrictions
+  # that only cover some availability zones do not matter here.
+  available="$(az vm list-skus --location "$LOCATION" --size "$SIZE" --resource-type virtualMachines \
+    --query "[?name=='$SIZE' && length(restrictions[?type=='Location'])==\`0\`].name" --output tsv)"
+  [ -n "$available" ] || die "$SIZE is not available to this subscription in $LOCATION. Pass another size (e.g. Standard_B2als_v2) or region; the B sizes there: az vm list-skus --location $LOCATION --size Standard_B --output table"
+fi
 
 if [ "$(az group exists --name "$RESOURCE_GROUP")" != true ]; then
   echo "Creating resource group $RESOURCE_GROUP in $LOCATION"
   az group create --name "$RESOURCE_GROUP" --location "$LOCATION" --output none
 fi
 
-if az vm show --resource-group "$RESOURCE_GROUP" --name "$VM_NAME" --output none 2>/dev/null; then
+if [ "$VM_EXISTS" = 1 ]; then
   echo "VM $VM_NAME already exists; keeping it"
 else
   if [ -n "${SSH_PUBLIC_KEY:-}" ]; then
@@ -91,9 +106,13 @@ Next steps (from the repo root):
      ssh-keygen -t ed25519 -N '' -C erp-web-deploy -f ~/.ssh/erp_web_deploy
      ssh $ADMIN_USER@$FQDN 'cat >> ~/.ssh/authorized_keys' < ~/.ssh/erp_web_deploy.pub
 
-3. GitHub settings (gh auth login first). AZURE_VM_KNOWN_HOSTS comes from ssh-keyscan:
-     gh api --method PUT 'repos/{owner}/{repo}/environments/production' --silent
-     gh variable set AZURE_VM_HOST --body $FQDN
+3. GitHub settings (gh auth login first): a production environment that only main may deploy to,
+   the variables, and the environment secrets. AZURE_VM_KNOWN_HOSTS comes from ssh-keyscan.
+   SSH goes to DEPLOY_DOMAIN; only if it must go to another name or an IP, also set the secret
+   AZURE_VM_HOST (gh secret set AZURE_VM_HOST --env production): Actions logs are public.
+     gh api --method PUT 'repos/{owner}/{repo}/environments/production' --silent \\
+       -F 'deployment_branch_policy[protected_branches]=false' -F 'deployment_branch_policy[custom_branch_policies]=true'
+     gh api --method POST 'repos/{owner}/{repo}/environments/production/deployment-branch-policies' --silent -f name=main
      gh variable set AZURE_VM_USER --body $ADMIN_USER
      gh variable set DEPLOY_DOMAIN --body $FQDN
      gh secret set AZURE_VM_SSH_KEY --env production < ~/.ssh/erp_web_deploy

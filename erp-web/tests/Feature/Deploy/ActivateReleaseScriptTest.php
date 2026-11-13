@@ -14,6 +14,11 @@ use Tests\TestCase;
  */
 class ActivateReleaseScriptTest extends TestCase
 {
+    /**
+     * What activate-release.sh runs, one command at a time, to cache a release.
+     */
+    protected const CACHE_COMMANDS = ['config:cache', 'event:cache', 'route:cache', 'view:cache', 'filament:optimize'];
+
     protected string $root;
 
     protected function setUp(): void
@@ -51,12 +56,14 @@ class ActivateReleaseScriptTest extends TestCase
         $password = trim(File::get($this->root.'/etc/initial-admin-password'));
         $this->assertSame([
             "{$release} migrate -",
+            "{$release} tinker -",
             "{$release} db:seed --class=Database\\Seeders\\SystemSeeder {$password}",
-            "{$release} optimize -",
-            "{$release} filament:optimize -",
+            ...array_map(fn (string $command): string => "{$release} {$command} -", self::CACHE_COMMANDS),
             "{$release} queue:restart -",
         ], $this->artisanCalls());
         $this->assertFileExists($this->root.'/data/.system-seeded');
+        $this->assertFileDoesNotExist($this->root.'/data/.system-seeding');
+        $this->assertFileExists($this->root.'/etc/initial-admin-password');
 
         $releaseDir = $this->root.'/app/releases/'.$release;
         $this->assertSame($this->root.'/etc/erp-web.env', readlink($releaseDir.'/.env'));
@@ -77,7 +84,60 @@ class ActivateReleaseScriptTest extends TestCase
 
         $this->assertTrue($result->successful(), $result->errorOutput());
         $this->assertStringEndsWith('-bbbbbbb', $this->currentRelease());
-        $this->assertSame(['migrate', 'optimize', 'filament:optimize', 'queue:restart'], $this->artisanCommands());
+        $this->assertSame(['migrate', ...self::CACHE_COMMANDS, 'queue:restart'], $this->artisanCommands());
+    }
+
+    public function test_a_restored_database_that_already_has_users_is_never_seeded(): void
+    {
+        $result = $this->activate($this->stubRelease('a'), ['ERP_STUB_USERS' => 'yes']);
+
+        $this->assertTrue($result->successful(), $result->errorOutput());
+        $this->assertSame(['migrate', 'tinker', ...self::CACHE_COMMANDS, 'queue:restart'], $this->artisanCommands());
+        $this->assertStringContainsString('already has users', $result->output());
+        $this->assertFileExists($this->root.'/data/.system-seeded');
+        $this->assertFileDoesNotExist($this->root.'/etc/initial-admin-password');
+    }
+
+    public function test_an_interrupted_first_seeding_runs_the_seeder_again(): void
+    {
+        $failed = $this->activate($this->stubRelease('a'), ['ERP_STUB_FAIL' => 'db:seed']);
+        $this->assertFalse($failed->successful());
+        $this->assertFileExists($this->root.'/data/.system-seeding');
+        File::delete($this->root.'/artisan.log');
+
+        $result = $this->activate($this->stubRelease('b'), ['ERP_STUB_USERS' => 'yes']);
+
+        $this->assertTrue($result->successful(), $result->errorOutput());
+        $this->assertSame(['migrate', 'db:seed', ...self::CACHE_COMMANDS, 'queue:restart'], $this->artisanCommands());
+        $this->assertFileExists($this->root.'/data/.system-seeded');
+        $this->assertFileDoesNotExist($this->root.'/data/.system-seeding');
+    }
+
+    public function test_artisan_output_goes_to_the_root_only_deploy_log_and_not_to_the_terminal(): void
+    {
+        $this->activate($this->stubRelease('a'));
+
+        $result = $this->activate($this->stubRelease('b'), ['ERP_STUB_FAIL' => 'migrate']);
+
+        $this->assertFalse($result->successful());
+        $this->assertStringContainsString($this->root.'/deploy.log', $result->errorOutput());
+        $this->assertStringNotContainsString('Confidential Customer', $result->output().$result->errorOutput());
+        $this->assertStringContainsString("insert into customers values ('Confidential Customer')", File::get($this->root.'/deploy.log'));
+        $this->assertSame('600', substr(sprintf('%o', fileperms($this->root.'/deploy.log')), -3));
+    }
+
+    public function test_release_files_are_made_readable_whatever_the_build_machine_umask(): void
+    {
+        $tarball = $this->stubRelease('a', restrictive: true);
+
+        $result = $this->activate($tarball);
+
+        $this->assertTrue($result->successful(), $result->errorOutput());
+        $releaseDir = $this->root.'/app/releases/'.$this->currentRelease();
+        $this->assertSame('755', substr(sprintf('%o', fileperms($releaseDir)), -3));
+        $this->assertSame('755', substr(sprintf('%o', fileperms($releaseDir.'/public')), -3));
+        $this->assertSame('644', substr(sprintf('%o', fileperms($releaseDir.'/public/index.php')), -3));
+        $this->assertSame('750', substr(sprintf('%o', fileperms($releaseDir.'/bootstrap/cache')), -3));
     }
 
     public function test_failed_migration_keeps_the_previous_release_serving(): void
@@ -160,9 +220,11 @@ class ActivateReleaseScriptTest extends TestCase
 
     /**
      * A release tarball whose REVISION is the given letter repeated and whose artisan logs
-     * "<release dir> <command> <ERP_ADMIN_PASSWORD or ->" and fails for the command in ERP_STUB_FAIL.
+     * "<release dir> <command> <ERP_ADMIN_PASSWORD or ->", prints SQL with customer data the way a failing
+     * query would, answers the "has users" tinker check with ERP_STUB_USERS and fails for the command in
+     * ERP_STUB_FAIL. Restrictive releases are packaged as a build machine with umask 077 would.
      */
-    protected function stubRelease(string $letter): string
+    protected function stubRelease(string $letter, bool $restrictive = false): string
     {
         $dir = $this->root.'/build-'.$letter;
         File::ensureDirectoryExists($dir.'/public');
@@ -175,13 +237,22 @@ class ActivateReleaseScriptTest extends TestCase
             $command = $argv[1] ?? '';
             $arguments = $command === 'db:seed' ? ' '.$argv[2] : '';
             file_put_contents(getenv('ERP_STUB_LOG'), basename(__DIR__)." {$command}{$arguments} ".(getenv('ERP_ADMIN_PASSWORD') ?: '-')."\n", FILE_APPEND);
+            fwrite(STDERR, "SQL: insert into customers values ('Confidential Customer')\n");
             if ($command === getenv('ERP_STUB_FAIL')) {
                 exit(1);
             }
-            if ($command === 'optimize') {
+            if ($command === 'tinker') {
+                echo getenv('ERP_STUB_USERS') === 'yes' ? "yes\n" : "no\n";
+            }
+            if ($command === 'config:cache') {
                 file_put_contents(__DIR__.'/bootstrap/cache/config.php', '<?php return [];');
             }
             PHP);
+
+        if ($restrictive) {
+            Process::run(['find', $dir, '-type', 'd', '-exec', 'chmod', '0700', '{}', '+'])->throw();
+            Process::run(['find', $dir, '-type', 'f', '-exec', 'chmod', '0600', '{}', '+'])->throw();
+        }
 
         $tarball = $this->root.'/release-'.$letter.'.tar.gz';
         Process::run(['tar', '-czf', $tarball, '-C', $dir, '.'])->throw();
@@ -223,8 +294,10 @@ class ActivateReleaseScriptTest extends TestCase
             'ERP_RUN_AS_SELF' => '1',
             'ERP_HEALTH_URL' => 'file://'.$this->root.'/healthy',
             'ERP_HEALTH_RETRIES' => '0',
+            'ERP_DEPLOY_LOG' => $this->root.'/deploy.log',
             'ERP_STUB_LOG' => $this->root.'/artisan.log',
             'ERP_STUB_FAIL' => '',
+            'ERP_STUB_USERS' => '',
         ];
     }
 

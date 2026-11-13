@@ -94,6 +94,42 @@ class SetupVmScriptTest extends TestCase
         $this->assertSame('', $result->output());
     }
 
+    public function test_a_deleted_admin_password_file_is_not_created_again_once_the_system_data_exists(): void
+    {
+        $this->setupEnv('erp.example.com');
+        File::ensureDirectoryExists($this->root.'/data');
+        File::put($this->root.'/data/.system-seeded', '2026-01-01T00:00:00Z');
+        File::delete($this->root.'/etc/initial-admin-password');
+
+        $result = $this->setupEnv('erp.example.com');
+
+        $this->assertTrue($result->successful(), $result->errorOutput());
+        $this->assertFileDoesNotExist($this->root.'/etc/initial-admin-password');
+    }
+
+    public function test_refuses_to_generate_a_new_app_key_when_the_database_already_has_data(): void
+    {
+        File::ensureDirectoryExists($this->root.'/data/database');
+        File::put($this->root.'/data/database/database.sqlite', 'SQLite format 3');
+
+        $result = $this->setupEnv('erp.example.com');
+
+        $this->assertFalse($result->successful());
+        $this->assertStringContainsString('a new APP_KEY cannot decrypt the ZATCA EGS secrets', $result->errorOutput());
+        $this->assertFileDoesNotExist($this->root.'/etc/erp-web.env');
+    }
+
+    public function test_a_new_app_key_for_existing_data_needs_an_explicit_override(): void
+    {
+        File::ensureDirectoryExists($this->root.'/data');
+        File::put($this->root.'/data/.system-seeded', '2026-01-01T00:00:00Z');
+
+        $result = $this->setupEnv('erp.example.com', ['ERP_ALLOW_NEW_APP_KEY' => '1']);
+
+        $this->assertTrue($result->successful(), $result->errorOutput());
+        $this->assertStringStartsWith('base64:', $this->parsedEnv()['APP_KEY']);
+    }
+
     public function test_rejects_a_domain_that_is_not_a_plain_dns_name(): void
     {
         $result = $this->setupEnv('erp.example.com;touch /tmp/x');
@@ -103,13 +139,19 @@ class SetupVmScriptTest extends TestCase
         $this->assertFileDoesNotExist($this->root.'/etc/erp-web.env');
     }
 
-    protected function setupEnv(string $domain): ProcessResult
+    /**
+     * @param  array<string, string>  $env
+     */
+    protected function setupEnv(string $domain, array $env = []): ProcessResult
     {
         return Process::env([
             'ERP_RUN_AS_SELF' => '1',
             'ERP_ETC_DIR' => $this->root.'/etc',
             'ERP_DATA_DIR' => $this->root.'/data',
             'ERP_APP_DIR' => $this->root.'/app',
+            'ERP_BACKUP_DIR' => $this->root.'/backups',
+            'ERP_ALLOW_NEW_APP_KEY' => '',
+            ...$env,
         ])->run(['bash', base_path('deploy/setup-vm.sh'), $domain, '--only-env']);
     }
 

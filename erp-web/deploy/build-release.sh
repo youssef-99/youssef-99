@@ -8,8 +8,11 @@
 # Needs git, PHP 8.3 and Composer. Only committed files are packaged (git archive), so .env,
 # storage/, database.sqlite and the working-tree vendor/ never end up in a release. Composer's
 # post-autoload-dump scripts publish the Filament assets into public/.
-# Progress goes to stderr; the last line on stdout is the tarball's absolute path.
+# Progress goes to stderr; the last line on stdout is the tarball's absolute path. OUTPUT_TARBALL may be
+# an existing directory: the default file name is then written there.
 set -euo pipefail
+# Release files must be readable by the app user and Caddy on the VM, whatever this machine's umask.
+umask 022
 
 REF="${REF:-HEAD}"
 CALLER_DIR="$PWD"
@@ -35,6 +38,12 @@ OUTPUT="${1:-erp-web-$SHORT_SHA.tar.gz}"
 case "$OUTPUT" in
   /*) ;;
   *) OUTPUT="$CALLER_DIR/$OUTPUT" ;;
+esac
+if [ -d "$OUTPUT" ]; then
+  OUTPUT="${OUTPUT%/}/erp-web-$SHORT_SHA.tar.gz"
+fi
+case "$OUTPUT" in
+  */) die "output directory does not exist: $OUTPUT" ;;
 esac
 OUTPUT_DIR="$(dirname "$OUTPUT")"
 [ -d "$OUTPUT_DIR" ] || die "output directory does not exist: $OUTPUT_DIR"
@@ -74,6 +83,12 @@ if [ ! -f bootstrap/cache/packages.php ] || [ ! -d public/js/filament ] || [ ! -
 fi
 php artisan --version >/dev/null || die "the release does not boot with production dependencies"
 
+# Composer scripts and artisan just ran inside the release: take deploy/, whose scripts run as root on
+# the VM, from git again (deploy.sh also checks them against the commit).
+rm -rf deploy
+mkdir deploy
+git -C "$REPO_ROOT" archive --format=tar "${SHA}:${APP_PREFIX}deploy" | tar -x -C deploy
+
 # Development-only files. deploy/ stays: the VM uses it for rollbacks.
 rm -rf tests .github .claude .mcp.json boost.json AGENTS.md CLAUDE.md phpunit.xml docs \
   .editorconfig .styleci.yml CHANGELOG.md .phpunit.result.cache .phpunit.cache
@@ -84,6 +99,8 @@ find database -maxdepth 1 -name '*.sqlite*' -delete
 rm -f bootstrap/cache/config.php bootstrap/cache/events.php bootstrap/cache/routes-*.php
 
 printf '%s\n' "$SHA" >REVISION
+# The build machine's umask or git's modes must not make files unreadable on the VM.
+chmod -R u+rwX,go+rX,go-w "$STAGE"
 
 COPYFILE_DISABLE=1 tar -C "$STAGE" -czf "$WORK/release.tar.gz" .
 mv -f "$WORK/release.tar.gz" "$OUTPUT"

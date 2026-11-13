@@ -1,7 +1,8 @@
 # Tests erp-web on every push and pull request, and deploys main to the Azure VM.
-# Deploy settings (README "Deploy: Azure VM + GitHub Actions"): variables AZURE_VM_HOST, AZURE_VM_USER and
-# DEPLOY_DOMAIN; secrets AZURE_VM_SSH_KEY and AZURE_VM_KNOWN_HOSTS. This repo is public, so its Actions logs
-# are public too: nothing here prints a secret.
+# Deploy settings (README "Deploy: Azure VM + GitHub Actions"): variables AZURE_VM_USER and DEPLOY_DOMAIN;
+# production environment secrets AZURE_VM_SSH_KEY, AZURE_VM_KNOWN_HOSTS and, only when SSH must go to
+# another name or an IP, AZURE_VM_HOST. This repo is public, so its Actions logs are public too: nothing
+# here prints a secret, and the build job, which runs Composer scripts and artisan, has no secrets at all.
 name: ERP Web
 
 on:
@@ -17,12 +18,18 @@ on:
   workflow_dispatch:
     inputs:
       deploy:
-        description: Deploy to production after the tests pass
+        description: Deploy to production after the tests pass (main only)
         type: boolean
         default: true
 
 permissions:
   contents: read
+
+# One run per branch at a time, so an older commit never deploys after a newer one: a newer push to main
+# waits for the running deploy (and replaces a run still waiting). Pull request runs are cancelled instead.
+concurrency:
+  group: erp-web-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
@@ -71,28 +78,19 @@ jobs:
       - name: Run tests
         run: php artisan test --compact
 
-  deploy:
-    name: Deploy to the Azure VM
+  # Builds the release without any secret: Composer plugins and scripts and artisan run here, and none of
+  # them can reach the SSH key, which only the deploy job (a separate runner) ever writes.
+  build:
+    name: Build the release
     needs: test
     if: >-
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'workflow_dispatch' && inputs.deploy)
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy))
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    environment:
-      name: production
-      url: https://${{ vars.DEPLOY_DOMAIN }}
-    concurrency:
-      group: erp-web-production
-      cancel-in-progress: false
+    timeout-minutes: 15
     defaults:
       run:
         shell: bash
-    env:
-      # Settings go through env vars, never straight into shell commands.
-      AZURE_VM_HOST: ${{ vars.AZURE_VM_HOST }}
-      AZURE_VM_USER: ${{ vars.AZURE_VM_USER }}
-      DEPLOY_DOMAIN: ${{ vars.DEPLOY_DOMAIN }}
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -118,8 +116,54 @@ jobs:
           key: composer-${{ runner.os }}-${{ hashFiles('erp-web/composer.lock') }}
           restore-keys: composer-${{ runner.os }}-
 
+      - name: Build the release tarball
+        run: erp-web/deploy/build-release.sh "$RUNNER_TEMP/erp-web-release.tar.gz"
+
+      - name: Upload the release
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: erp-web-release
+          path: ${{ runner.temp }}/erp-web-release.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  # Runs only after the build job ran and succeeded. It runs no Composer or artisan code: deploy.sh takes
+  # the root-run VM scripts from git at the release's commit and checks the release's copies against them.
+  deploy:
+    name: Deploy to the Azure VM
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment:
+      name: production
+      url: https://${{ vars.DEPLOY_DOMAIN }}
+    concurrency:
+      group: erp-web-production
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: bash
+    env:
+      # Settings go through env vars, never straight into shell commands.
+      AZURE_VM_USER: ${{ vars.AZURE_VM_USER }}
+      DEPLOY_DOMAIN: ${{ vars.DEPLOY_DOMAIN }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download the release
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: erp-web-release
+          path: ${{ runner.temp }}/release
+
       - name: Configure SSH
         env:
+          # A secret, so it is masked even in step headers; without it SSH goes to the public domain.
+          AZURE_VM_HOST: ${{ secrets.AZURE_VM_HOST || vars.DEPLOY_DOMAIN }}
           AZURE_VM_SSH_KEY: ${{ secrets.AZURE_VM_SSH_KEY }}
           AZURE_VM_KNOWN_HOSTS: ${{ secrets.AZURE_VM_KNOWN_HOSTS }}
         run: |
@@ -127,16 +171,12 @@ jobs:
           for name in AZURE_VM_SSH_KEY AZURE_VM_KNOWN_HOSTS; do
             [ -n "${!name}" ] || missing="$missing secrets.$name"
           done
-          for name in AZURE_VM_HOST AZURE_VM_USER DEPLOY_DOMAIN; do
+          for name in AZURE_VM_USER DEPLOY_DOMAIN; do
             [ -n "${!name}" ] || missing="$missing vars.$name"
           done
           if [ -n "$missing" ]; then
             echo "::error title=Deploy is not configured::Missing$missing. See 'Deploy: Azure VM + GitHub Actions' in erp-web/README.md."
             exit 1
-          fi
-          # Only the public domain may appear in the (public) logs.
-          if [ "$AZURE_VM_HOST" != "$DEPLOY_DOMAIN" ]; then
-            echo "::add-mask::$AZURE_VM_HOST"
           fi
           umask 077
           mkdir -p ~/.ssh
@@ -145,6 +185,9 @@ jobs:
           chmod 600 ~/.ssh/erp_web_deploy ~/.ssh/known_hosts
 
       - name: Deploy
+        env:
+          AZURE_VM_HOST: ${{ secrets.AZURE_VM_HOST || vars.DEPLOY_DOMAIN }}
+          RELEASE_TARBALL: ${{ runner.temp }}/release/erp-web-release.tar.gz
         run: |
           export SSH_OPTS="-i $HOME/.ssh/erp_web_deploy -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o ConnectTimeout=30 -o ServerAliveInterval=30"
           erp-web/deploy/deploy.sh "$AZURE_VM_USER@$AZURE_VM_HOST" "$DEPLOY_DOMAIN"
